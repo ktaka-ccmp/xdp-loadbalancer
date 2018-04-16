@@ -1,6 +1,6 @@
 #
 TARGETS := xdp_ddos01_blacklist
-#TARGETS += xdp_tx_iptunnel
+TARGETS += xdp_tx_iptunnel
 TARGETS += xdp_lbtest
 
 CMDLINE_TOOLS := xdp_ddos01_blacklist_cmdline
