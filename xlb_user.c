@@ -1,9 +1,3 @@
-/* Copyright (c) 2016 Facebook
- *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of version 2 of the GNU General Public
- * License as published by the Free Software Foundation.
- */
 #include <linux/bpf.h>
 #include <linux/if_link.h>
 #include <assert.h>
@@ -20,13 +14,11 @@
 #include "bpf_load.h"
 #include "libbpf.h"
 #include "bpf_util.h"
-#include "xdp_lbtest_common.h"
+#include "xlb_common.h"
 
 #include <net/if.h>
 #include <sys/statfs.h>
 #include <libgen.h>
-
-// #define STATS_INTERVAL_S 2U
 
 static char ifname_buf[IF_NAMESIZE];
 static char *ifname = NULL;
@@ -200,24 +192,16 @@ void chown_maps(uid_t owner, gid_t group)
 
 int main(int argc, char **argv)
 {
-  //	unsigned char opt_flags[256] = {};
 	const char *optstr = "i:Shqr";
 	struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
 	char filename[256];
 	int opt;
-	//	int i;
 
 	uid_t owner = -1; /* -1 result in no-change of owner */
 	gid_t group = -1;
 	
 	bool rm_xdp_prog = false;
 
-	/*
-	for (i = 0; i < strlen(optstr); i++)
-		if (optstr[i] != 'h' && 'a' <= optstr[i] && optstr[i] <= 'z')
-			opt_flags[(unsigned char)optstr[i]] = 1;
-	*/
-	
 	while ((opt = getopt(argc, argv, optstr)) != -1) {
 		switch (opt) {
 		case 'q':
@@ -228,7 +212,7 @@ int main(int argc, char **argv)
 		  break;
 		case 'i':
 		  if (strlen(optarg) >= IF_NAMESIZE) {
-		    fprintf(stderr, "ERR: --dev name too long\n");
+		    fprintf(stderr, "ERR: Intereface name too long\n");
 		    goto error;
 		  }
 		  ifname = (char *)&ifname_buf;
@@ -236,7 +220,7 @@ int main(int argc, char **argv)
 		  ifindex = if_nametoindex(ifname);
 		  if (ifindex == 0) {
 		    fprintf(stderr,
-			    "ERR: --dev name unknown err(%d):%s\n",
+			    "ERR: Interface name unknown err(%d):%s\n",
 			    errno, strerror(errno));
 		    goto error;
 		  }
@@ -249,21 +233,10 @@ int main(int argc, char **argv)
 			usage(argv[0]);
 			return 1;
 		}
-		//		opt_flags[opt] = 0;
 	}
 
-	/*
-	for (i = 0; i < strlen(optstr); i++) {
-		if (opt_flags[(unsigned int)optstr[i]]) {
-			fprintf(stderr, "Missing argument -%c\n", optstr[i]);
-			usage(argv[0]);
-			return 1;
-		}
-	}
-	*/
-	
         if (ifindex == -1) {
-	  printf("ERR: required option --dev missing");
+	  printf("ERR: required option -i missing");
 	  usage(argv[0]);
 	  return EXIT_FAIL_OPTION;
 	}

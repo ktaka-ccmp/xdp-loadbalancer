@@ -1,7 +1,7 @@
 #
 TARGETS := xdp_ddos01_blacklist
 TARGETS += xdp_tx_iptunnel
-TARGETS += xdp_lbtest
+TARGETS += xlb
 
 CMDLINE_TOOLS := xdp_ddos01_blacklist_cmdline
 COMMON_H      =  ${CMDLINE_TOOLS:_cmdline=_common.h}

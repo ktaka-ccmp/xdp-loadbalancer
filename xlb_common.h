@@ -25,6 +25,9 @@
 
 #define MAX_IPTNL_ENTRIES 256U
 
+#define ACTION_ADD      (1 << 0)
+#define ACTION_DEL      (1 << 1)
+
 static int verbose = 1;
 
 static const char *file_rxcnt = "/sys/fs/bpf/rxcnt";

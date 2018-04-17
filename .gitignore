@@ -1,6 +1,7 @@
+*~
 *.o
 *.ll
-xdp_lbtest
+xlb
 xdp_ddos01_blacklist
 xdp_ddos01_blacklist_cmdline
 xdp_tx_iptunnel

@@ -17,7 +17,7 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include "bpf_helpers.h"
-#include "xdp_lbtest_common.h"
+#include "xlb_common.h"
 
 struct bpf_map_def SEC("maps") rxcnt = {
 	.type = BPF_MAP_TYPE_PERCPU_ARRAY,
