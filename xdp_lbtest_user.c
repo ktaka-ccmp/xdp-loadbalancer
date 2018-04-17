@@ -22,202 +22,237 @@
 #include "bpf_util.h"
 #include "xdp_lbtest_common.h"
 
-#define STATS_INTERVAL_S 2U
+#include <net/if.h>
+#include <sys/statfs.h>
+#include <libgen.h>
+
+// #define STATS_INTERVAL_S 2U
+
+static char ifname_buf[IF_NAMESIZE];
+static char *ifname = NULL;
 
 static int ifindex = -1;
 static __u32 xdp_flags = 0;
 
-static void int_exit(int sig)
+#define NR_MAPS 2
+int maps_marked_for_export[MAX_MAPS] = { 0 };
+
+static const char* map_idx_to_export_filename(int idx)
 {
-	if (ifindex > -1)
-		set_link_xdp_fd(ifindex, -1, xdp_flags);
-	exit(0);
+  const char *file = NULL;
+
+  /* Mapping map_fd[idx] to export filenames */
+  switch (idx) {
+  case 0: /* map_fd[0]: rxcnt */
+    file =   file_rxcnt;
+    break;
+  case 1: /* map_fd[1]: vip2tnl */
+    file =   file_vip2tnl;
+    break;
+  default:
+    break;
+  }
+
+  printf("FileNAME: %s \n", file);
+
+  return file;
 }
 
-/* simple per-protocol drop counter
- */
-static void poll_stats(unsigned int kill_after_s)
+static void remove_xdp_program(int ifindex, const char *ifname, __u32 xdp_flags)
 {
-	const unsigned int nr_protos = 256;
-	unsigned int nr_cpus = bpf_num_possible_cpus();
-	time_t started_at = time(NULL);
-	__u64 values[nr_cpus], prev[nr_protos][nr_cpus];
-	__u32 proto;
-	int i;
+  int i;
+  fprintf(stderr, "Removing XDP program on ifindex:%d device:%s\n",
+	  ifindex, ifname);
+  if (ifindex > -1)
+    set_link_xdp_fd(ifindex, -1, xdp_flags);
 
-	memset(prev, 0, sizeof(prev));
+  for (i = 0; i < NR_MAPS; i++) {
+    const char *file = map_idx_to_export_filename(i);
 
-	while (!kill_after_s || time(NULL) - started_at <= kill_after_s) {
-		sleep(STATS_INTERVAL_S);
-
-		for (proto = 0; proto < nr_protos; proto++) {
-			__u64 sum = 0;
-
-			assert(bpf_map_lookup_elem(map_fd[0], &proto, values) == 0);
-			for (i = 0; i < nr_cpus; i++)
-				sum += (values[i] - prev[proto][i]);
-
-			if (sum)
-				printf("proto %u: sum:%10llu pkts, rate:%10llu pkts/s\n",
-				       proto, sum, sum / STATS_INTERVAL_S);
-			memcpy(prev[proto], values, sizeof(values));
-		}
-	}
+    if (unlink(file) < 0) {
+      printf("WARN: cannot rm map(%s) file:%s err(%d):%s\n",
+	     map_data[i].name, file, errno, strerror(errno));
+    }
+  }
 }
 
 static void usage(const char *cmd)
 {
-	printf("Start a XDP prog which encapsulates incoming packets\n"
-	       "in an IPv4/v6 header and XDP_TX it out.  The dst <VIP:PORT>\n"
-	       "is used to select packets to encapsulate\n\n");
-	printf("Usage: %s [...]\n", cmd);
-	printf("    -i <ifindex> Interface Index\n");
-	printf("    -a <vip-service-address> IPv4 or IPv6\n");
-	printf("    -p <vip-service-port> A port range (e.g. 433-444) is also allowed\n");
-	printf("    -s <source-ip> Used in the IPTunnel header\n");
-	printf("    -d <dest-ip> Used in the IPTunnel header\n");
-	printf("    -m <dest-MAC> Used in sending the IP Tunneled pkt\n");
-	printf("    -T <stop-after-X-seconds> Default: 0 (forever)\n");
-	printf("    -P <IP-Protocol> Default is TCP\n");
-	printf("    -S use skb-mode\n");
-	printf("    -N enforce native mode\n");
-	printf("    -h Display this help\n");
+  printf("Start a XDP prog which encapsulates incoming packets\n");
+  printf("Usage: %s [...]\n", cmd);
+  printf("    -i <ifindex> Interface Index\n");
+  printf("    -S use skb-mode\n");
+  printf("    -N enforce native mode\n");
+  printf("    -h Display this help\n");
 }
 
-static int parse_ipstr(const char *ipstr, unsigned int *addr)
-{
-	if (inet_pton(AF_INET6, ipstr, addr) == 1) {
-		return AF_INET6;
-	} else if (inet_pton(AF_INET, ipstr, addr) == 1) {
-		addr[1] = addr[2] = addr[3] = 0;
-		return AF_INET;
-	}
+#ifndef BPF_FS_MAGIC
+# define BPF_FS_MAGIC   0xcafe4a11
+#endif
 
-	fprintf(stderr, "%s is an invalid IP\n", ipstr);
-	return AF_UNSPEC;
+static int bpf_fs_check_path(const char *path)
+{
+  struct statfs st_fs;
+  char *dname, *dir;
+  int err = 0;
+
+  if (path == NULL)
+    return -EINVAL;
+
+  dname = strdup(path);
+  if (dname == NULL)
+    return -ENOMEM;
+
+  dir = dirname(dname);
+  if (statfs(dir, &st_fs)) {
+    fprintf(stderr, "ERR: failed to statfs %s: (%d)%s\n",
+	    dir, errno, strerror(errno));
+    err = -errno;
+  }
+  free(dname);
+
+  if (!err && st_fs.f_type != BPF_FS_MAGIC) {
+    fprintf(stderr,
+	                            "ERR: specified path %s is not on BPF FS\n\n"
+	                            " You need to mount the BPF filesystem type like:\n"
+	    "  mount -t bpf bpf /sys/fs/bpf/\n\n",
+	    path);
+    err = -EINVAL;
+  }
+
+  return err;
 }
 
-static int parse_ports(const char *port_str, int *min_port, int *max_port)
+int load_map_file(const char *file, struct bpf_map_data *map_data)
 {
-	char *end;
-	long tmp_min_port;
-	long tmp_max_port;
+  int fd;
 
-	tmp_min_port = strtol(optarg, &end, 10);
-	if (tmp_min_port < 1 || tmp_min_port > 65535) {
-		fprintf(stderr, "Invalid port(s):%s\n", optarg);
-		return 1;
-	}
+  if (bpf_fs_check_path(file) < 0) {
+    exit(EXIT_FAIL_MAP_FS);
+  }
 
-	if (*end == '-') {
-		end++;
-		tmp_max_port = strtol(end, NULL, 10);
-		if (tmp_max_port < 1 || tmp_max_port > 65535) {
-			fprintf(stderr, "Invalid port(s):%s\n", optarg);
-			return 1;
-		}
-	} else {
-		tmp_max_port = tmp_min_port;
-	}
+  fd = bpf_obj_get(file);
+  if (fd > 0) { /* Great: map file already existed use it */
+    if (verbose)
+      printf(" - Loaded bpf-map:%-30s from file:%s\n",
+	     map_data->name, file);
+    return fd;
+  }
+  return -1;
+}
 
-	if (tmp_min_port > tmp_max_port) {
-		fprintf(stderr, "Invalid port(s):%s\n", optarg);
-		return 1;
-	}
+void pre_load_maps_via_fs(struct bpf_map_data *map_data, int idx)
+{
+  const char *file;
+  int fd;
 
-	if (tmp_max_port - tmp_min_port + 1 > MAX_IPTNL_ENTRIES) {
-		fprintf(stderr, "Port range (%s) is larger than %u\n",
-			port_str, MAX_IPTNL_ENTRIES);
-		return 1;
-	}
-	*min_port = tmp_min_port;
-	*max_port = tmp_max_port;
+  file = map_idx_to_export_filename(idx);
+  fd = load_map_file(file, map_data);
 
-	return 0;
+  if (fd > 0) {
+    map_data->fd = fd;
+  } else {
+    maps_marked_for_export[idx] = 1;
+  }
+}
+
+int export_map_idx(int map_idx)
+{
+  const char *file;
+
+  file = map_idx_to_export_filename(map_idx);
+
+  if (bpf_obj_pin(map_fd[map_idx], file) != 0) {
+    fprintf(stderr, "ERR: Cannot pin map(%s) file:%s err(%d):%s\n",
+	    map_data[map_idx].name, file, errno, strerror(errno));
+    return EXIT_FAIL_MAP;
+  }
+  if (verbose)
+    printf(" - Export bpf-map:%-30s to   file:%s\n",
+	   map_data[map_idx].name, file);
+  return 0;
+}
+
+void export_maps(void)
+{
+  int i;
+
+  for (i = 0; i < NR_MAPS; i++) {
+    if (maps_marked_for_export[i] == 1)
+      export_map_idx(i);
+  }
+}
+
+void chown_maps(uid_t owner, gid_t group)
+{
+  const char *file;
+  int i;
+
+  for (i = 0; i < NR_MAPS; i++) {
+    file = map_idx_to_export_filename(i);
+
+    if (chown(file, owner, group) < 0)
+      fprintf(stderr,
+	      "WARN: Cannot chown file:%s err(%d):%s\n",
+	      file, errno, strerror(errno));
+  }
 }
 
 int main(int argc, char **argv)
 {
-	unsigned char opt_flags[256] = {};
-	unsigned int kill_after_s = 0;
-	const char *optstr = "i:a:p:s:d:m:T:P:SNh";
-	int min_port = 0, max_port = 0;
-	struct iptnl_info tnl = {};
+  //	unsigned char opt_flags[256] = {};
+	const char *optstr = "i:Shqr";
 	struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
-	struct vip vip = {};
 	char filename[256];
 	int opt;
-	int i;
+	//	int i;
 
-	tnl.family = AF_UNSPEC;
-	vip.protocol = IPPROTO_TCP;
+	uid_t owner = -1; /* -1 result in no-change of owner */
+	gid_t group = -1;
+	
+	bool rm_xdp_prog = false;
 
+	/*
 	for (i = 0; i < strlen(optstr); i++)
 		if (optstr[i] != 'h' && 'a' <= optstr[i] && optstr[i] <= 'z')
 			opt_flags[(unsigned char)optstr[i]] = 1;
-
+	*/
+	
 	while ((opt = getopt(argc, argv, optstr)) != -1) {
-		unsigned short family;
-		unsigned int *v6;
-
 		switch (opt) {
+		case 'q':
+		  verbose = 0;
+		  break;
+		case 'r':
+		  rm_xdp_prog = true;
+		  break;
 		case 'i':
-			ifindex = atoi(optarg);
-			break;
-		case 'a':
-			vip.family = parse_ipstr(optarg, vip.daddr.v6);
-			if (vip.family == AF_UNSPEC)
-				return 1;
-			break;
-		case 'p':
-			if (parse_ports(optarg, &min_port, &max_port))
-				return 1;
-			break;
-		case 'P':
-			vip.protocol = atoi(optarg);
-			break;
-		case 's':
-		case 'd':
-			if (opt == 's')
-				v6 = tnl.saddr.v6;
-			else
-				v6 = tnl.daddr.v6;
-
-			family = parse_ipstr(optarg, v6);
-			if (family == AF_UNSPEC)
-				return 1;
-			if (tnl.family == AF_UNSPEC) {
-				tnl.family = family;
-			} else if (tnl.family != family) {
-				fprintf(stderr,
-					"The IP version of the src and dst addresses used in the IP encapsulation does not match\n");
-				return 1;
-			}
-			break;
-		case 'm':
-			if (!ether_aton_r(optarg,
-					  (struct ether_addr *)tnl.dmac)) {
-				fprintf(stderr, "Invalid mac address:%s\n",
-					optarg);
-				return 1;
-			}
-			break;
-		case 'T':
-			kill_after_s = atoi(optarg);
-			break;
+		  if (strlen(optarg) >= IF_NAMESIZE) {
+		    fprintf(stderr, "ERR: --dev name too long\n");
+		    goto error;
+		  }
+		  ifname = (char *)&ifname_buf;
+		  strncpy(ifname, optarg, IF_NAMESIZE);
+		  ifindex = if_nametoindex(ifname);
+		  if (ifindex == 0) {
+		    fprintf(stderr,
+			    "ERR: --dev name unknown err(%d):%s\n",
+			    errno, strerror(errno));
+		    goto error;
+		  }
+		  break;
 		case 'S':
 			xdp_flags |= XDP_FLAGS_SKB_MODE;
 			break;
-		case 'N':
-			xdp_flags |= XDP_FLAGS_DRV_MODE;
-			break;
+		error:
 		default:
 			usage(argv[0]);
 			return 1;
 		}
-		opt_flags[opt] = 0;
+		//		opt_flags[opt] = 0;
 	}
 
+	/*
 	for (i = 0; i < strlen(optstr); i++) {
 		if (opt_flags[(unsigned int)optstr[i]]) {
 			fprintf(stderr, "Missing argument -%c\n", optstr[i]);
@@ -225,7 +260,19 @@ int main(int argc, char **argv)
 			return 1;
 		}
 	}
-
+	*/
+	
+        if (ifindex == -1) {
+	  printf("ERR: required option --dev missing");
+	  usage(argv[0]);
+	  return EXIT_FAIL_OPTION;
+	}
+		
+	if (rm_xdp_prog) {
+	  remove_xdp_program(ifindex, ifname, xdp_flags);
+	  return 0;
+	}
+	
 	if (setrlimit(RLIMIT_MEMLOCK, &r)) {
 		perror("setrlimit(RLIMIT_MEMLOCK, RLIM_INFINITY)");
 		return 1;
@@ -233,8 +280,8 @@ int main(int argc, char **argv)
 
 	snprintf(filename, sizeof(filename), "%s_kern.o", argv[0]);
 
-	if (load_bpf_file(filename)) {
-		printf("%s", bpf_log_buf);
+	if (load_bpf_file_fixup_map(filename, pre_load_maps_via_fs)) {
+	  fprintf(stderr, "Error in load_bpf_file_fixup_map(): %s", bpf_log_buf);
 		return 1;
 	}
 
@@ -243,25 +290,15 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	signal(SIGINT, int_exit);
-	signal(SIGTERM, int_exit);
+	export_maps();
 
-	while (min_port <= max_port) {
-		vip.dport = htons(min_port++);
-		if (bpf_map_update_elem(map_fd[1], &vip, &tnl, BPF_NOEXIST)) {
-			perror("bpf_map_update_elem(&vip2tnl)");
-			return 1;
-		}
-	}
+	if (owner >= 0)
+	  chown_maps(owner, group);
 
 	if (set_link_xdp_fd(ifindex, prog_fd[0], xdp_flags) < 0) {
 		printf("link set xdp fd failed\n");
 		return 1;
 	}
-
-//	poll_stats(kill_after_s);
-
-//	set_link_xdp_fd(ifindex, -1, xdp_flags);
 
 	return 0;
 }
