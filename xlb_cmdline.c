@@ -117,16 +117,23 @@ static void vip2tnl_list_all(int fd)
 {
   struct vip key = {}, next_key;
   struct iptnl_info value;
-
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+  char mac_txt[ETHER_ADDR_LEN] = {0};
+  
   while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
     bpf_map_lookup_elem(fd, &next_key, &value);
-    
-    printf("%d\n", next_key.daddr.v4 );
+
+    assert(inet_ntop(next_key.family, &next_key.daddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("{\n VIP: %s\n" , ip_txt);
     printf("%d\n", next_key.protocol );
-    printf("%d\n", next_key.dport );
-    printf("%d\n", value.saddr.v4 );
-    printf("%d\n", value.daddr.v4 );
-    printf("%s\n", value.dmac );
+    printf("%d\n", ntohs(next_key.dport));
+
+    assert(inet_ntop(value.family, &value.saddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("src: %s\n", ip_txt );
+    assert(inet_ntop(value.family, &value.daddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("dst: %s\n", ip_txt );
+    assert(ether_ntoa_r(&value.dmac, mac_txt));
+    printf("mac: %s\n }\n", mac_txt );
     key = next_key;
   }
 }
@@ -251,38 +258,25 @@ int main(int argc, char **argv)
 	}
 
 	
-	if (action == ACTION_ADD) {
-	  fd_vip2tnl = open_bpf_map(file_vip2tnl);
+	fd_vip2tnl = open_bpf_map(file_vip2tnl);
 
-	  while (min_port <= max_port) {
-	    vip.dport = htons(min_port++);
+	while (min_port <= max_port) {
+	  vip.dport = htons(min_port++);
+	  if (action == ACTION_ADD) {
 	    if (bpf_map_update_elem(fd_vip2tnl, &vip, &tnl, BPF_NOEXIST)) {
 	      perror("bpf_map_update_elem(&vip2tnl)");
 	      return 1;
 	    }
+	  } else if (action == ACTION_DEL) {
+	    bpf_map_delete_elem(fd_vip2tnl, &vip);
 	  }
-
-	  close(fd_vip2tnl);
-
-	} else if (action == ACTION_DEL) {
-	  ;
-	} else {
-	  fprintf(stderr, "ERR: %s() invalid action 0x%x\n",
-		  __func__, action);
-	  //	  return EXIT_FAIL_OPTION;
 	}
 
-	
 	if (do_list) {
-	  printf("{");
-
-	  fd_vip2tnl = open_bpf_map(file_vip2tnl);
-	  //	  bpf_map_lookup_elem(fd, &next_key, *value);
 	  vip2tnl_list_all(fd_vip2tnl);
-	  close(fd_vip2tnl);
-
-	  printf("\n}\n");
 	}
+
+	close(fd_vip2tnl);
 
 	return 0;
 }
