@@ -4,6 +4,7 @@ TARGETS += xdp_tx_iptunnel
 TARGETS += xlb
 
 CMDLINE_TOOLS := xdp_ddos01_blacklist_cmdline
+CMDLINE_TOOLS := xlb_cmdline
 COMMON_H      =  ${CMDLINE_TOOLS:_cmdline=_common.h}
 
 # Generate file name-scheme based on TARGETS

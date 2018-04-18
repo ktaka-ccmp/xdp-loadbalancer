@@ -2,6 +2,7 @@
 *.o
 *.ll
 xlb
+xlb_cmdline
 xdp_ddos01_blacklist
 xdp_ddos01_blacklist_cmdline
 xdp_tx_iptunnel

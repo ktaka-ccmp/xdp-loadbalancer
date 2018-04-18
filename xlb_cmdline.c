@@ -24,15 +24,13 @@
 
 #define STATS_INTERVAL_S 2U
 
+#include <net/if.h>
+
+static char ifname_buf[IF_NAMESIZE];
+static char *ifname = NULL;
+
 static int ifindex = -1;
 static __u32 xdp_flags = 0;
-
-static void int_exit(int sig)
-{
-	if (ifindex > -1)
-		set_link_xdp_fd(ifindex, -1, xdp_flags);
-	exit(0);
-}
 
 static void usage(const char *cmd)
 {
@@ -40,16 +38,13 @@ static void usage(const char *cmd)
 	       "in an IPv4/v6 header and XDP_TX it out.  The dst <VIP:PORT>\n"
 	       "is used to select packets to encapsulate\n\n");
 	printf("Usage: %s [...]\n", cmd);
-	printf("    -i <ifindex> Interface Index\n");
-	printf("    -a <vip-service-address> IPv4 or IPv6\n");
-	printf("    -p <vip-service-port> A port range (e.g. 433-444) is also allowed\n");
+	printf("    -i Interface name\n");
+	printf("    -A <vip-service-address> IPv4 or IPv6\n");
+	printf("    -t or -u <vip-service-port> A port range (e.g. 433-444) is also allowed\n");
 	printf("    -s <source-ip> Used in the IPTunnel header\n");
 	printf("    -d <dest-ip> Used in the IPTunnel header\n");
 	printf("    -m <dest-MAC> Used in sending the IP Tunneled pkt\n");
-	printf("    -T <stop-after-X-seconds> Default: 0 (forever)\n");
-	printf("    -P <IP-Protocol> Default is TCP\n");
 	printf("    -S use skb-mode\n");
-	printf("    -N enforce native mode\n");
 	printf("    -h Display this help\n");
 }
 
@@ -105,29 +100,59 @@ static int parse_ports(const char *port_str, int *min_port, int *max_port)
 	return 0;
 }
 
+int open_bpf_map(const char *file)
+{
+  int fd;
+
+  fd = bpf_obj_get(file);
+  if (fd < 0) {
+    printf("ERR: Failed to open bpf map file:%s err(%d):%s\n",
+	   file, errno, strerror(errno));
+    exit(EXIT_FAIL_MAP_FILE);
+  }
+  return fd;
+}
+
+static void vip2tnl_list_all(int fd)
+{
+  struct vip key = {}, next_key;
+  struct iptnl_info value;
+
+  while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+    bpf_map_lookup_elem(fd, &next_key, &value);
+    
+    printf("%d\n", next_key.daddr.v4 );
+    printf("%d\n", next_key.protocol );
+    printf("%d\n", next_key.dport );
+    printf("%d\n", value.saddr.v4 );
+    printf("%d\n", value.daddr.v4 );
+    printf("%s\n", value.dmac );
+    key = next_key;
+  }
+}
+
 int main(int argc, char **argv)
 {
-	unsigned char opt_flags[256] = {};
-	unsigned int kill_after_s = 0;
-	const char *optstr = "i:a:p:s:d:m:T:P:SNh";
+  //	unsigned char opt_flags[256] = {};
+	const char *optstr = "i:A:D:L:u:t:s:d:m:T:P:Sh";
 	int min_port = 0, max_port = 0;
 	struct iptnl_info tnl = {};
-	struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
 	struct vip vip = {};
-	char filename[256];
 	int opt;
-	int i;
-
+	
+	int fd_vip2tnl;
+	bool do_list = true;
+	
         unsigned int action = 0;
 	
-	action |= ACTION_ADD;
-
 	tnl.family = AF_UNSPEC;
 	vip.protocol = IPPROTO_TCP;
 
+	/*
 	for (i = 0; i < strlen(optstr); i++)
 		if (optstr[i] != 'h' && 'a' <= optstr[i] && optstr[i] <= 'z')
 			opt_flags[(unsigned char)optstr[i]] = 1;
+	*/
 
 	while ((opt = getopt(argc, argv, optstr)) != -1) {
 		unsigned short family;
@@ -135,24 +160,43 @@ int main(int argc, char **argv)
 
 		switch (opt) {
 		case 'i':
-			ifindex = atoi(optarg);
-			break;
+                  if (strlen(optarg) >= IF_NAMESIZE) {
+		    fprintf(stderr, "ERR: Intereface name too long\n");
+		    goto error;
+		  }
+		  ifname = (char *)&ifname_buf;
+		  strncpy(ifname, optarg, IF_NAMESIZE);
+		  ifindex = if_nametoindex(ifname);
+		  if (ifindex == 0) {
+		    fprintf(stderr,
+			    "ERR: Interface name unknown err(%d):%s\n",
+			    errno, strerror(errno));
+		    goto error;
+		  }
+		  break;
 		case 'D':
 		  action |= ACTION_DEL;
-                case 'A':
+		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
+		  if (vip.family == AF_UNSPEC)
+		    return 1;
+        	  break;
+		case 'A':
+		  action |= ACTION_ADD;
+		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
+		  if (vip.family == AF_UNSPEC)
+		    return 1;
+		  break;
+		case 'L':
 		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
 		  if (vip.family == AF_UNSPEC)
 		    return 1;
 		  break;
                 case 'u':
-		  proto = IPPROTO_UDP;
+		  vip.protocol = IPPROTO_UDP;
 		case 't':
 		  if (parse_ports(optarg, &min_port, &max_port))
 		    return 1;
 		  break;
-		case 'P':
-			vip.protocol = atoi(optarg);
-			break;
 		case 's':
 		case 'd':
 			if (opt == 's')
@@ -182,13 +226,15 @@ int main(int argc, char **argv)
 		case 'S':
 			xdp_flags |= XDP_FLAGS_SKB_MODE;
 			break;
+		error:
 		default:
 			usage(argv[0]);
 			return 1;
 		}
-		opt_flags[opt] = 0;
+		//		opt_flags[opt] = 0;
 	}
 
+	/*
 	for (i = 0; i < strlen(optstr); i++) {
 		if (opt_flags[(unsigned int)optstr[i]]) {
 			fprintf(stderr, "Missing argument -%c\n", optstr[i]);
@@ -196,45 +242,47 @@ int main(int argc, char **argv)
 			return 1;
 		}
 	}
+	*/
 
-	fd_vip2tnl = open_bpf_map(file_vip2tnl);
-
-	if (setrlimit(RLIMIT_MEMLOCK, &r)) {
-		perror("setrlimit(RLIMIT_MEMLOCK, RLIM_INFINITY)");
-		return 1;
+	if (ifindex == -1) {
+	  printf("ERR: required option -i missing");
+	  usage(argv[0]);
+	  return EXIT_FAIL_OPTION;
 	}
 
-	snprintf(filename, sizeof(filename), "%s_kern.o", argv[0]);
+	
+	if (action == ACTION_ADD) {
+	  fd_vip2tnl = open_bpf_map(file_vip2tnl);
 
-	if (load_bpf_file(filename)) {
-		printf("%s", bpf_log_buf);
-		return 1;
+	  while (min_port <= max_port) {
+	    vip.dport = htons(min_port++);
+	    if (bpf_map_update_elem(fd_vip2tnl, &vip, &tnl, BPF_NOEXIST)) {
+	      perror("bpf_map_update_elem(&vip2tnl)");
+	      return 1;
+	    }
+	  }
+
+	  close(fd_vip2tnl);
+
+	} else if (action == ACTION_DEL) {
+	  ;
+	} else {
+	  fprintf(stderr, "ERR: %s() invalid action 0x%x\n",
+		  __func__, action);
+	  //	  return EXIT_FAIL_OPTION;
 	}
 
-	if (!prog_fd[0]) {
-		printf("load_bpf_file: %s\n", strerror(errno));
-		return 1;
+	
+	if (do_list) {
+	  printf("{");
+
+	  fd_vip2tnl = open_bpf_map(file_vip2tnl);
+	  //	  bpf_map_lookup_elem(fd, &next_key, *value);
+	  vip2tnl_list_all(fd_vip2tnl);
+	  close(fd_vip2tnl);
+
+	  printf("\n}\n");
 	}
-
-	signal(SIGINT, int_exit);
-	signal(SIGTERM, int_exit);
-
-	while (min_port <= max_port) {
-		vip.dport = htons(min_port++);
-		if (bpf_map_update_elem(map_fd[1], &vip, &tnl, BPF_NOEXIST)) {
-			perror("bpf_map_update_elem(&vip2tnl)");
-			return 1;
-		}
-	}
-
-	if (set_link_xdp_fd(ifindex, prog_fd[0], xdp_flags) < 0) {
-		printf("link set xdp fd failed\n");
-		return 1;
-	}
-
-//	poll_stats(kill_after_s);
-
-//	set_link_xdp_fd(ifindex, -1, xdp_flags);
 
 	return 0;
 }
