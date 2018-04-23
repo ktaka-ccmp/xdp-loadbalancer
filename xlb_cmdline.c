@@ -267,6 +267,16 @@ int main(int argc, char **argv)
 	      perror("bpf_map_update_elem(&vip2tnl)");
 	      return 1;
 	    }
+
+	    if (bpf_map_lookup_elem(fd_vip2ids, &vip, &ids)){
+	      ids->rid +=1;
+	      bpf_map_delete_elem(fd_vip2ids, &vip);
+	      bpf_map_update_elem(fd_vip2ids, &vip, &ids);
+	      bpf_map_update_elem(fd_idx2tnl, ids->vid*256+ids->rid, &ids);
+	      
+	    }
+
+
 	  } else if (action == ACTION_DEL) {
 	    bpf_map_delete_elem(fd_vip2tnl, &vip);
 	  }

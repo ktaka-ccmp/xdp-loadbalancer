@@ -41,6 +41,15 @@ static const char* map_idx_to_export_filename(int idx)
   case 1: /* map_fd[1]: vip2tnl */
     file =   file_vip2tnl;
     break;
+  case 2: /* map_fd[1]: vip2tnl */
+    file =   file_viplist;
+    break;
+  case 3: /* map_fd[1]: vip2tnl */
+    file =   file_vip2ids;
+    break;
+  case 4: /* map_fd[1]: vip2tnl */
+    file =   file_idx2tnl;
+    break;
   default:
     break;
   }

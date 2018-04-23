@@ -33,6 +33,27 @@ struct bpf_map_def SEC("maps") vip2tnl = {
 	.max_entries = MAX_IPTNL_ENTRIES,
 };
 
+struct bpf_map_def SEC("maps") viplist = {
+	.type = BPF_MAP_TYPE_ARRAY,
+	.key_size = sizeof(__u8),
+	.value_size = sizeof(struct vip),
+	.max_entries = MAX_IPTNL_ENTRIES,
+};
+
+struct bpf_map_def SEC("maps") vip2ids = {
+	.type = BPF_MAP_TYPE_HASH,
+	.key_size = sizeof(struct vip),
+	.value_size = sizeof(struct ids),
+	.max_entries = MAX_IPTNL_ENTRIES,
+};
+
+struct bpf_map_def SEC("maps") idx2tnl = {
+	.type = BPF_MAP_TYPE_ARRAY,
+	.key_size = sizeof(__u16),
+	.value_size = sizeof(struct iptnl_info),
+	.max_entries = 65536,
+};
+
 static __always_inline void count_tx(u32 protocol)
 {
 	u64 *rxcnt_count;
