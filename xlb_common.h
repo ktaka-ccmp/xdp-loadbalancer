@@ -32,9 +32,9 @@ static int verbose = 1;
 
 static const char *file_rxcnt = "/sys/fs/bpf/rxcnt";
 static const char *file_vip2tnl   = "/sys/fs/bpf/vip2tnl";
-static const char *file_viplist   = "/sys/fs/bpf/viplist";
-static const char *file_vip2ids   = "/sys/fs/bpf/vip2ids";
-static const char *file_idx2tnl   = "/sys/fs/bpf/idx2tnl";
+static const char *file_v_server   = "/sys/fs/bpf/v_server";
+static const char *file_ip_lnklst   = "/sys/fs/bpf/ip_lnklst";
+static const char *file_r_server   = "/sys/fs/bpf/r_server";
 
 struct vip {
 	union {
@@ -57,10 +57,6 @@ struct iptnl_info {
 	} daddr;
 	__u16 family;
 	__u8 dmac[6];
-};
-
-struct ids {
-  __u8 vid, rid;
 };
 
 #endif

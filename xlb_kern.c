@@ -33,23 +33,23 @@ struct bpf_map_def SEC("maps") vip2tnl = {
 	.max_entries = MAX_IPTNL_ENTRIES,
 };
 
-struct bpf_map_def SEC("maps") viplist = {
-	.type = BPF_MAP_TYPE_ARRAY,
-	.key_size = sizeof(__u8),
-	.value_size = sizeof(struct vip),
-	.max_entries = MAX_IPTNL_ENTRIES,
-};
-
-struct bpf_map_def SEC("maps") vip2ids = {
+struct bpf_map_def SEC("maps") v_server = {
 	.type = BPF_MAP_TYPE_HASH,
 	.key_size = sizeof(struct vip),
-	.value_size = sizeof(struct ids),
+	.value_size = sizeof(__u64),
 	.max_entries = MAX_IPTNL_ENTRIES,
 };
 
-struct bpf_map_def SEC("maps") idx2tnl = {
-	.type = BPF_MAP_TYPE_ARRAY,
-	.key_size = sizeof(__u16),
+struct bpf_map_def SEC("maps") ip_lnklst = {
+	.type = BPF_MAP_TYPE_HASH,
+	.key_size = sizeof(__u64),
+	.value_size = sizeof(__u64),
+	.max_entries = MAX_IPTNL_ENTRIES,
+};
+
+struct bpf_map_def SEC("maps") r_server = {
+	.type = BPF_MAP_TYPE_HASH,
+	.key_size = sizeof(__u64),
 	.value_size = sizeof(struct iptnl_info),
 	.max_entries = 65536,
 };

@@ -113,6 +113,93 @@ int open_bpf_map(const char *file)
   return fd;
 }
 
+__u64 conv(char ipadr[])
+{
+  __u64 num=0,val;
+  char *tok,*ptr;
+  tok=strtok(ipadr,".");
+  while( tok != NULL)
+    {
+      val=strtoul(tok,&ptr,0);
+      num=(num << 8) + val;
+      //      printf("(val,num)=(%lu,%lu)\n",val,num);
+      tok=strtok(NULL,".");
+    }
+  return(num);
+}
+
+static void lnklst_add_to_map(int fd, struct iptnl_info *vip , __u64 *head){
+  __u64 key = *head , next, min, ipint;
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+  
+  assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
+  ipint = conv(ip_txt);
+
+  if ( bpf_map_lookup_elem(fd, &ipint, &next) == 0 ){
+    printf("Worker already exists!\n");
+    return;
+  }
+  
+  if ( bpf_map_lookup_elem(fd, &key, &next) == -1 ){
+    next = key;
+    assert(bpf_map_update_elem(fd, &key, &next, BPF_NOEXIST) == 0 );
+  }
+  
+  if ( next == key ){
+    assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0 );
+    assert(bpf_map_update_elem(fd, &ipint, &key,  BPF_ANY) == 0 );
+    return;
+    
+  } else if (key > next){
+    min = next;
+  } else {
+    while (key < next){
+      key = next;
+      bpf_map_lookup_elem(fd, &key, &next);
+    }
+    min = next;
+  }
+
+  key = min;
+  bpf_map_lookup_elem(fd, &key, &next);
+
+  if ( ipint < min ){
+    assert(bpf_map_update_elem(fd, &ipint, &min, BPF_ANY) == 0 );
+
+    while (next != min){
+      key = next;
+      bpf_map_lookup_elem(fd, &key, &next);
+    }
+
+    assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
+    min = ipint;
+    return;
+
+  } else {
+    if (( key < ipint) && ( ipint < next )){
+      assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
+      assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
+      return;
+      
+    } else {
+    
+      while ( next !=  min ){
+	key = next;
+	bpf_map_lookup_elem(fd, &key, &next);
+	if ((key < ipint) && ( ipint < next )){
+	  assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
+	  assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
+	  return;
+	} else if (ipint > next){
+	  assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
+	  assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
+	  return;
+	}
+      }
+    }
+  }
+}
+
 static void vip2tnl_list_all(int fd)
 {
   struct vip key = {}, next_key;
@@ -138,6 +225,44 @@ static void vip2tnl_list_all(int fd)
   }
 }
 
+static void v_server_list_all(int fd)
+{
+  struct vip key = {}, next_key;
+  __u64 head;
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+  
+  while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+    if ((bpf_map_lookup_elem(fd, &key, &head)) != 0) {
+      break;
+    }
+
+    assert(inet_ntop(next_key.family, &next_key.daddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("{\n VIP: %s\n" , ip_txt);
+    printf("%d\n", next_key.protocol );
+    printf("%d\n", ntohs(next_key.dport));
+    printf("head = %lu\n", head);
+
+    key = next_key;
+  }
+}
+
+static void ip_lnklst_list_all(int fd, __u64 *head){
+
+  __u64 key = *head, next_key;
+  __u64 next;
+
+  assert(bpf_map_lookup_elem(fd, &key, &next) == 0);
+
+  printf("(key, value) = (%lu,%lu)\n" , key, next);
+
+  while (next != *head){
+    key = next;
+    assert(bpf_map_lookup_elem(fd, &key, &next) == 0);
+    printf("(key, value) = (%lu,%lu)\n" , key, next);
+    if (key == next) return;
+  }
+}
+
 int main(int argc, char **argv)
 {
   //	unsigned char opt_flags[256] = {};
@@ -147,7 +272,10 @@ int main(int argc, char **argv)
 	struct vip vip = {};
 	int opt;
 	
-	int fd_vip2tnl;
+	int fd_vip2tnl, fd_v_server, fd_ip_lnklst, fd_r_server;
+	__u64 head;
+	char ip_txt[INET_ADDRSTRLEN] = {0};
+  
 	bool do_list = true;
 	
         unsigned int action = 0;
@@ -257,25 +385,25 @@ int main(int argc, char **argv)
 	  return EXIT_FAIL_OPTION;
 	}
 
-	
 	fd_vip2tnl = open_bpf_map(file_vip2tnl);
+	fd_v_server = open_bpf_map(file_v_server);
+	fd_ip_lnklst = open_bpf_map(file_ip_lnklst);
+	fd_r_server = open_bpf_map(file_r_server);
 
 	while (min_port <= max_port) {
 	  vip.dport = htons(min_port++);
 	  if (action == ACTION_ADD) {
-	    if (bpf_map_update_elem(fd_vip2tnl, &vip, &tnl, BPF_NOEXIST)) {
+	    if (bpf_map_update_elem(fd_vip2tnl, &vip, &tnl, BPF_ANY)) {
 	      perror("bpf_map_update_elem(&vip2tnl)");
 	      return 1;
 	    }
 
-	    if (bpf_map_lookup_elem(fd_vip2ids, &vip, &ids)){
-	      ids->rid +=1;
-	      bpf_map_delete_elem(fd_vip2ids, &vip);
-	      bpf_map_update_elem(fd_vip2ids, &vip, &ids);
-	      bpf_map_update_elem(fd_idx2tnl, ids->vid*256+ids->rid, &ids);
-	      
+	    if (bpf_map_lookup_elem(fd_v_server, &vip, &head) == -1 ){
+	      assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+	      head = conv(ip_txt);
 	    }
-
+	    lnklst_add_to_map(fd_ip_lnklst, &tnl, &head);
+	    bpf_map_update_elem(fd_v_server, &vip.daddr.v4, &head, BPF_ANY);
 
 	  } else if (action == ACTION_DEL) {
 	    bpf_map_delete_elem(fd_vip2tnl, &vip);
@@ -284,9 +412,14 @@ int main(int argc, char **argv)
 
 	if (do_list) {
 	  vip2tnl_list_all(fd_vip2tnl);
+	  v_server_list_all(fd_v_server);
+	  ip_lnklst_list_all(fd_ip_lnklst, &head);
 	}
 
 	close(fd_vip2tnl);
-
+	close(fd_v_server);
+	close(fd_ip_lnklst);
+	close(fd_r_server);
+	
 	return 0;
 }

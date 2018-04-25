@@ -26,7 +26,7 @@ static char *ifname = NULL;
 static int ifindex = -1;
 static __u32 xdp_flags = 0;
 
-#define NR_MAPS 2
+#define NR_MAPS 5
 int maps_marked_for_export[MAX_MAPS] = { 0 };
 
 static const char* map_idx_to_export_filename(int idx)
@@ -41,14 +41,14 @@ static const char* map_idx_to_export_filename(int idx)
   case 1: /* map_fd[1]: vip2tnl */
     file =   file_vip2tnl;
     break;
-  case 2: /* map_fd[1]: vip2tnl */
-    file =   file_viplist;
+  case 2: 
+    file =   file_v_server;
     break;
-  case 3: /* map_fd[1]: vip2tnl */
-    file =   file_vip2ids;
+  case 3: 
+    file =   file_ip_lnklst;
     break;
-  case 4: /* map_fd[1]: vip2tnl */
-    file =   file_idx2tnl;
+  case 4: 
+    file =   file_r_server;
     break;
   default:
     break;
