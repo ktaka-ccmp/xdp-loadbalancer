@@ -1,11 +1,8 @@
 #
-TARGETS := xdp_ddos01_blacklist
-TARGETS += xdp_tx_iptunnel
-TARGETS += xlb
+TARGETS := xlb
 TARGETS += map
 
-CMDLINE_TOOLS := xdp_ddos01_blacklist_cmdline
-CMDLINE_TOOLS += xlb_cmdline
+CMDLINE_TOOLS := xlb_cmdline
 CMDLINE_TOOLS += map_cmdline
 COMMON_H      =  ${CMDLINE_TOOLS:_cmdline=_common.h}
 
