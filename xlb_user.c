@@ -42,19 +42,19 @@ static const char* map_idx_to_export_filename(int idx)
     file =   file_vip2tnl;
     break;
   case 2: 
-    file =   file_v_server;
+    file =   file_service;
     break;
   case 3: 
-    file =   file_ip_lnklst;
+    file =   file_linklist;
     break;
   case 4: 
-    file =   file_r_server;
+    file =   file_worker;
     break;
   default:
     break;
   }
 
-  printf("FileNAME: %s \n", file);
+  if (DEBUG) printf("FileNAME: %s \n", file);
 
   return file;
 }
@@ -84,6 +84,7 @@ static void usage(const char *cmd)
   printf("    -i <ifindex> Interface Index\n");
   printf("    -S use skb-mode\n");
   printf("    -N enforce native mode\n");
+  printf("    -v verbose\n");
   printf("    -h Display this help\n");
 }
 
@@ -201,7 +202,7 @@ void chown_maps(uid_t owner, gid_t group)
 
 int main(int argc, char **argv)
 {
-	const char *optstr = "i:Shqr";
+	const char *optstr = "i:Shvr";
 	struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
 	char filename[256];
 	int opt;
@@ -213,8 +214,8 @@ int main(int argc, char **argv)
 
 	while ((opt = getopt(argc, argv, optstr)) != -1) {
 		switch (opt) {
-		case 'q':
-		  verbose = 0;
+		case 'v':
+		  verbose = 1;
 		  break;
 		case 'r':
 		  rm_xdp_prog = true;
