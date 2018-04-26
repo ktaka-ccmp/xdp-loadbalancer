@@ -46,6 +46,8 @@ static void usage(const char *cmd)
 	printf("    -m <dest-MAC> Used in sending the IP Tunneled pkt\n");
 	printf("    -S use skb-mode\n");
 	printf("    -v verbose\n");
+	printf("    -L list lb table\n");
+	printf("    -l list lbcache\n");
 	printf("    -h Display this help\n");
 }
 
@@ -320,10 +322,14 @@ static void show_worker( __u64 *key){
   assert(ether_ntoa_r(&value.dmac, mac_txt));
 
   if (DEBUG) printf("key: %lu\n", *key);
+  /*
   printf("    {\n");
   printf("        src: %s\n", saddr_txt );
   printf("        dst: %s (%s)\n", daddr_txt, mac_txt );
   printf("    }\n");
+  */
+
+  printf(" src: %s, dst: %s (%s)\n", saddr_txt, daddr_txt, mac_txt );
 
   close(fd);
 }
@@ -370,10 +376,56 @@ static void list_all()
   close(fd);
 }
 
+static void list_lbcache()
+{
+  int fd;
+  struct flow key = {}, next_key;
+  __u64 wkid;
+
+  char daddr_txt[INET_ADDRSTRLEN] = {0};
+  char saddr_txt[INET_ADDRSTRLEN] = {0};
+
+  fd = open_bpf_map(file_lbcache);
+  int fdw = open_bpf_map(file_worker);
+
+  while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+
+    key = next_key;
+    bpf_map_lookup_elem(fd, &key, &wkid);
+
+    __u32 test_ip = key.vip.daddr.v4;
+
+    inet_ntop(key.vip.family, &key.vip.daddr.v4, daddr_txt, sizeof(daddr_txt));
+    inet_ntop(key.sip.family, &key.sip.saddr.v4, saddr_txt, sizeof(saddr_txt));
+
+    printf(" %s:%d -> %s:%d (%d) => "
+	   ,saddr_txt,ntohs(key.sip.sport)
+	   ,daddr_txt,ntohs(key.vip.dport)
+	   ,key.vip.protocol
+	   );
+
+    //    show_worker(&wkid);
+
+    struct iptnl_info value;
+    char mac_txt[ETHER_ADDR_LEN] = {0};
+
+    bpf_map_lookup_elem(fdw, &wkid, &value);
+    //    inet_ntop(value.family, &value.saddr.v4, saddr_txt, sizeof(saddr_txt));
+    //    printf("%s ", w_saddr_txt);
+    inet_ntop(value.family, &value.daddr.v4, daddr_txt, sizeof(daddr_txt));
+    ether_ntoa_r(&value.dmac, mac_txt);
+    printf("%s (%s)\n", daddr_txt, mac_txt );
+
+  }
+
+  close(fdw);
+  close(fd);
+}
+
 int main(int argc, char **argv)
 {
   //	unsigned char opt_flags[256] = {};
-	const char *optstr = "i:A:D:u:t:s:d:m:T:P:SLvh";
+	const char *optstr = "i:A:D:u:t:s:d:m:T:P:SLlvh";
 	int min_port = 0, max_port = 0;
 	struct iptnl_info tnl = {};
 	struct vip vip = {};
@@ -384,6 +436,7 @@ int main(int argc, char **argv)
 	char ip_txt[INET_ADDRSTRLEN] = {0};
   
 	bool do_list = false;
+	bool monitor = false;
 	
         unsigned int action = 0;
 	
@@ -436,6 +489,9 @@ int main(int argc, char **argv)
 		  //		  if (vip.family == AF_UNSPEC)
 		  //		    return 1;
 		  do_list = true;
+		  break;
+		case 'l':
+		  monitor = true;
 		  break;
                 case 'u':
 		  vip.protocol = IPPROTO_UDP;
@@ -544,6 +600,10 @@ int main(int argc, char **argv)
 	  //	  service_list_all();
 	  linklist_list_all();
 	  //	  worker_list_all();
+	}
+
+	if (monitor) {
+	  list_lbcache();
 	}
 
 	return 0;

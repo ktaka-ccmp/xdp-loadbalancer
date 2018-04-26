@@ -73,7 +73,7 @@ struct sip {
 	__u8 protocol;
 };
 
-struct flowtuple {
+struct flow {
   struct vip vip;
   struct sip sip;
 };

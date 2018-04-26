@@ -55,10 +55,12 @@ struct bpf_map_def SEC("maps") worker = {
 };
 
 struct bpf_map_def SEC("maps") lbcache = {
-  .type = BPF_MAP_TYPE_LRU_PERCPU_HASH,
-  .key_size = sizeof(struct flowtuple),
+  .type = BPF_MAP_TYPE_LRU_HASH,
+  //  .type = BPF_MAP_TYPE_HASH,
+  .key_size = sizeof(struct flow),
   .value_size = sizeof(__u64),
-  .max_entries = 65536,
+  .max_entries = 200,
+  //  .max_entries = 65536,
 };
 
 static __always_inline void count_tx(u32 protocol)
@@ -87,6 +89,28 @@ static __always_inline int get_dport(void *trans_data, void *data_end,
 		if (uh + 1 > data_end)
 			return -1;
 		return uh->dest;
+	default:
+		return 0;
+	}
+}
+
+static __always_inline int get_sport(void *trans_data, void *data_end,
+				     u8 protocol)
+{
+	struct tcphdr *th;
+	struct udphdr *uh;
+
+	switch (protocol) {
+	case IPPROTO_TCP:
+		th = (struct tcphdr *)trans_data;
+		if (th + 1 > data_end)
+			return -1;
+		return th->source;
+	case IPPROTO_UDP:
+		uh = (struct udphdr *)trans_data;
+		if (uh + 1 > data_end)
+			return -1;
+		return uh->source;
 	default:
 		return 0;
 	}
@@ -134,16 +158,42 @@ static __always_inline int handle_ipv4(struct xdp_md *xdp)
 	vip.dport = dport;
 	payload_len = ntohs(iph->tot_len);
 
-	struct flowtuple flowtable = {};
+	struct flow flow = {};
 	__u64 *wkid_p, wkid;
+	__u64 *next_wkid_p, next_wkid;
+	struct sip sip = {};
+	int sport;
 
-	wkid_p = bpf_map_lookup_elem(&lbcache, &flowtable); 
+	if (iph + 1 > data_end)
+		return XDP_DROP;
+
+	sport = get_sport(iph + 1, data_end, iph->protocol);
+	if (sport == -1)
+		return XDP_DROP;
+
+	sip.protocol = iph->protocol;
+	sip.family = AF_INET;
+	sip.saddr.v4 = iph->saddr;
+	sip.sport = sport;
+
+	flow.vip = vip;
+	flow.sip = sip;
+
+	wkid_p = bpf_map_lookup_elem(&lbcache, &flow);
 	if (!wkid_p) {
 	  wkid_p = bpf_map_lookup_elem(&service, &vip);
 	  if (!wkid_p) return XDP_PASS;
-	}
-	wkid = *wkid_p;
 
+	  wkid = *wkid_p;
+	  bpf_map_update_elem(&lbcache, &flow, &wkid, BPF_ANY);
+
+	  next_wkid_p = bpf_map_lookup_elem(&linklist, &wkid);
+	  if (!next_wkid_p) return XDP_PASS;
+	  next_wkid = *next_wkid_p;
+	  bpf_map_update_elem(&service, &vip, &next_wkid, BPF_ANY);
+	}
+
+	wkid = *wkid_p;
 	tnl = bpf_map_lookup_elem(&worker, &wkid);
 	if (!tnl || tnl->family != AF_INET)
 	  return XDP_PASS;
