@@ -38,6 +38,7 @@ static const char *file_vip2tnl   = "/sys/fs/bpf/vip2tnl";
 static const char *file_service   = "/sys/fs/bpf/service";
 static const char *file_linklist   = "/sys/fs/bpf/linklist";
 static const char *file_worker   = "/sys/fs/bpf/worker";
+static const char *file_lbcache   = "/sys/fs/bpf/lbcache";
 
 struct vip {
 	union {
@@ -60,6 +61,21 @@ struct iptnl_info {
 	} daddr;
 	__u16 family;
 	__u8 dmac[6];
+};
+
+struct sip {
+	union {
+		__u32 v6[4];
+		__u32 v4;
+	} saddr;
+	__u16 sport;
+	__u16 family;
+	__u8 protocol;
+};
+
+struct flow {
+  struct vip vip;
+  struct sip sip;
 };
 
 #endif
