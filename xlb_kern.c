@@ -54,6 +54,13 @@ struct bpf_map_def SEC("maps") worker = {
 	.max_entries = 65536,
 };
 
+struct bpf_map_def SEC("maps") lbcache = {
+  .type = BPF_MAP_TYPE_LRU_PERCPU_HASH,
+  .key_size = sizeof(struct flowtuple),
+  .value_size = sizeof(__u64),
+  .max_entries = 65536,
+};
+
 static __always_inline void count_tx(u32 protocol)
 {
 	u64 *rxcnt_count;
@@ -95,6 +102,10 @@ static __always_inline void set_ethhdr(struct ethhdr *new_eth,
 	new_eth->h_proto = h_proto;
 }
 
+static __always_inline void update_lbcache_v4(struct ethhdr *new_eth)
+{
+}
+
 static __always_inline int handle_ipv4(struct xdp_md *xdp)
 {
 	void *data_end = (void *)(long)xdp->data_end;
@@ -123,10 +134,25 @@ static __always_inline int handle_ipv4(struct xdp_md *xdp)
 	vip.dport = dport;
 	payload_len = ntohs(iph->tot_len);
 
-	tnl = bpf_map_lookup_elem(&vip2tnl, &vip);
-	/* It only does v4-in-v4 */
+	struct flowtuple flowtable = {};
+	__u64 *wkid_p, wkid;
+
+	wkid_p = bpf_map_lookup_elem(&lbcache, &flowtable); 
+	if (!wkid_p) {
+	  wkid_p = bpf_map_lookup_elem(&service, &vip);
+	  if (!wkid_p) return XDP_PASS;
+	}
+	wkid = *wkid_p;
+
+	tnl = bpf_map_lookup_elem(&worker, &wkid);
 	if (!tnl || tnl->family != AF_INET)
-		return XDP_PASS;
+	  return XDP_PASS;
+
+	/*
+	tnl = bpf_map_lookup_elem(&vip2tnl, &vip);
+	if (!tnl || tnl->family != AF_INET)
+	  return XDP_PASS;
+	*/
 
 	/* The vip key is found.  Add an IP header and send it out */
 
