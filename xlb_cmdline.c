@@ -333,17 +333,17 @@ static void list_worker_from_head( __u64 *head){
   __u64 key = *head;
   __u64 value = NULL;
 
-  printf("{\n");
   int fd = open_bpf_map(file_linklist);
 
+  printf("{\n");
   while (value != *head){
-    assert(bpf_map_lookup_elem(fd, &key, &value) == 0);
     show_worker(&key);
+    assert(bpf_map_lookup_elem(fd, &key, &value) == 0);
     key = value;
   }
+  printf("}\n");
 
   close(fd);
-  printf("}\n");
 }
 
 static void list_all()
@@ -514,7 +514,7 @@ int main(int argc, char **argv)
 	      head = conv(ip_txt);
 	    }
 
-	    printf("head = %lu\n", head);
+	    if (verbose) printf("head old = %lu\n", head);
 
 	    lnklst_add_to_map(fd_linklist, &tnl, &head);
 	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
@@ -524,8 +524,7 @@ int main(int argc, char **argv)
 
 	    bpf_map_update_elem(fd_worker, &daddrint, &tnl, BPF_ANY);
 
-	    printf("head = %lu\n", head);
-
+	    if (verbose) printf("head new = %lu\n", head);
 	    
 	  } else if (action == ACTION_DEL) {
 	    bpf_map_delete_elem(fd_vip2tnl, &vip);
