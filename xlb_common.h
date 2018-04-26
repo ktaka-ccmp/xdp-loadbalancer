@@ -1,9 +1,12 @@
-/* Copyright (c) 2016 Facebook
+/*
+ * Copyright (c) 2016 Facebook
+ * Copyright (c) 2018 Cluster Computing Inc.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of version 2 of the GNU General Public
  * License as published by the Free Software Foundation.
  */
+
 #ifndef _SAMPLES_BPF_XDP_TX_IPTNL_COMMON_H
 #define _SAMPLES_BPF_XDP_TX_IPTNL_COMMON_H
 
