@@ -130,7 +130,7 @@ __u64 conv(char ipadr[])
 }
 
 static void lnklst_add_to_map(int fd, struct iptnl_info *vip , __u64 *head){
-  __u64 key = *head , next, min, ipint;
+  __u64 key = *head , next, min, max, ipint;
   char ip_txt[INET_ADDRSTRLEN] = {0};
 
   assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
@@ -141,63 +141,52 @@ static void lnklst_add_to_map(int fd, struct iptnl_info *vip , __u64 *head){
     return;
   }
 
-  if ( bpf_map_lookup_elem(fd, &key, &next) == -1 ){
+  if ( bpf_map_lookup_elem(fd, &key, &next) == -1 ){ // 1st entry. Create new.
     next = key;
     assert(bpf_map_update_elem(fd, &key, &next, BPF_NOEXIST) == 0 );
-  }
 
-  if ( next == key ){
+  } else if ( next == key ){ // 2nd entry. Only one entry exists.
     assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0 );
     assert(bpf_map_update_elem(fd, &ipint, &key,  BPF_ANY) == 0 );
-    return;
-
-  } else if (key > next){
-    min = next;
-  } else {
-    while (key < next){
-      key = next;
-      bpf_map_lookup_elem(fd, &key, &next);
-    }
-    min = next;
-  }
-
-  key = min;
-  bpf_map_lookup_elem(fd, &key, &next);
-
-  if ( ipint < min ){
-    assert(bpf_map_update_elem(fd, &ipint, &min, BPF_ANY) == 0 );
-
-    while (next != min){
-      key = next;
-      bpf_map_lookup_elem(fd, &key, &next);
-    }
-
-    assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
-    min = ipint;
-    return;
+    *head = key < ipint ? key : ipint;
 
   } else {
-    if (( key < ipint) && ( ipint < next )){
-      assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
-      assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
-      return;
 
+    // Find minimum
+    if (key > next){ // if head is the last entry
+      min = next;
+      max = key;
     } else {
-
-      while ( next !=  min ){
+      while (key < next){
 	key = next;
 	bpf_map_lookup_elem(fd, &key, &next);
-	if ((key < ipint) && ( ipint < next )){
-	  assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
-	  assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
-	  return;
-	} else if (ipint > next){
-	  assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
-	  assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
-	  return;
-	}
       }
+      max = key;
+      min = next;
     }
+
+    *head = min;
+
+    if (( ipint < min )||( max < ipint )){ // new entry is the smallest or the largest
+
+      assert(bpf_map_update_elem(fd, &ipint, &min, BPF_ANY) == 0 );
+      assert(bpf_map_update_elem(fd, &max, &ipint, BPF_ANY) == 0 ); // update tail
+
+      *head = min < ipint ? min : ipint;
+
+    } else if ( min < ipint < max ){
+
+      key = min;
+      bpf_map_lookup_elem(fd, &key, &next);
+
+      while ( next < ipint ){ // find the key where (key < ipint < next)
+	key = next;
+	bpf_map_lookup_elem(fd, &key, &next);
+      }
+      assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
+      assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
+    }
+
   }
 }
 
