@@ -211,7 +211,7 @@ static void vip2tnl_list_all(int fd)
     bpf_map_lookup_elem(fd, &next_key, &value);
 
     assert(inet_ntop(next_key.family, &next_key.daddr.v4, ip_txt, sizeof(ip_txt)));
-    printf("{\n VIP: %s\n" , ip_txt);
+    printf("{\nVIP: %s\n" , ip_txt);
     printf("%d\n", next_key.protocol );
     printf("%d\n", ntohs(next_key.dport));
 
@@ -220,7 +220,7 @@ static void vip2tnl_list_all(int fd)
     assert(inet_ntop(value.family, &value.daddr.v4, ip_txt, sizeof(ip_txt)));
     printf("dst: %s\n", ip_txt );
     assert(ether_ntoa_r(&value.dmac, mac_txt));
-    printf("mac: %s\n }\n", mac_txt );
+    printf("mac: %s\n}\n", mac_txt );
     key = next_key;
   }
 }
@@ -232,16 +232,36 @@ static void v_server_list_all(int fd)
   char ip_txt[INET_ADDRSTRLEN] = {0};
   
   while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
-    if ((bpf_map_lookup_elem(fd, &key, &head)) != 0) {
-      break;
-    }
-
+    bpf_map_lookup_elem(fd, &key, &head);
+    
     assert(inet_ntop(next_key.family, &next_key.daddr.v4, ip_txt, sizeof(ip_txt)));
-    printf("{\n VIP: %s\n" , ip_txt);
+    printf("{\nVIP: %s\n" , ip_txt);
     printf("%d\n", next_key.protocol );
     printf("%d\n", ntohs(next_key.dport));
-    printf("head = %lu\n", head);
+    printf("head = %lu\n}\n", head);
 
+    key = next_key;
+  }
+}
+
+static void r_server_list_all(int fd)
+{
+  __u64 key = 0, next_key;
+  struct iptnl_info value;
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+  char mac_txt[ETHER_ADDR_LEN] = {0};
+  
+  while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+    bpf_map_lookup_elem(fd, &next_key, &value);
+
+    printf("{\nkey: %lu\n" , next_key);
+
+    assert(inet_ntop(value.family, &value.saddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("src: %s\n", ip_txt );
+    assert(inet_ntop(value.family, &value.daddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("dst: %s\n", ip_txt );
+    assert(ether_ntoa_r(&value.dmac, mac_txt));
+    printf("mac: %s\n}\n", mac_txt );
     key = next_key;
   }
 }
@@ -273,7 +293,7 @@ int main(int argc, char **argv)
 	int opt;
 	
 	int fd_vip2tnl, fd_v_server, fd_ip_lnklst, fd_r_server;
-	__u64 head;
+	__u64 head, daddrint;
 	char ip_txt[INET_ADDRSTRLEN] = {0};
   
 	bool do_list = true;
@@ -404,6 +424,10 @@ int main(int argc, char **argv)
 	    }
 	    lnklst_add_to_map(fd_ip_lnklst, &tnl, &head);
 	    bpf_map_update_elem(fd_v_server, &vip.daddr.v4, &head, BPF_ANY);
+	    
+	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+	    daddrint = conv(ip_txt);
+	    bpf_map_update_elem(fd_r_server, &daddrint, &tnl, BPF_ANY);
 
 	  } else if (action == ACTION_DEL) {
 	    bpf_map_delete_elem(fd_vip2tnl, &vip);
@@ -411,9 +435,10 @@ int main(int argc, char **argv)
 	}
 
 	if (do_list) {
-	  vip2tnl_list_all(fd_vip2tnl);
+	  //	  vip2tnl_list_all(fd_vip2tnl);
 	  v_server_list_all(fd_v_server);
 	  ip_lnklst_list_all(fd_ip_lnklst, &head);
+	  r_server_list_all(fd_r_server);
 	}
 
 	close(fd_vip2tnl);
