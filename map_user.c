@@ -1,5 +1,5 @@
 #include <linux/bpf.h>
-#include <linux/if_link.h>
+// #include <linux/if_link.h>
 #include <assert.h>
 #include <errno.h>
 #include <signal.h>
@@ -7,18 +7,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
-#include <arpa/inet.h>
-#include <netinet/ether.h>
+// #include <arpa/inet.h>
+// #include <netinet/ether.h>
 #include <unistd.h>
 #include <time.h>
 #include "bpf_load.h"
 #include "libbpf.h"
 #include "bpf_util.h"
-#include "xlb_common.h"
+#include "map_common.h"
 
-#include <net/if.h>
+// #include <net/if.h>
 #include <sys/statfs.h>
 #include <libgen.h>
+
+#define IF_NAMESIZE 16
 
 static char ifname_buf[IF_NAMESIZE];
 static char *ifname = NULL;
@@ -26,35 +28,22 @@ static char *ifname = NULL;
 static int ifindex = -1;
 static __u32 xdp_flags = 0;
 
-#define NR_MAPS 5
+#define NR_MAPS 1
 int maps_marked_for_export[MAX_MAPS] = { 0 };
 
 static const char* map_idx_to_export_filename(int idx)
 {
   const char *file = NULL;
 
-  /* Mapping map_fd[idx] to export filenames */
   switch (idx) {
-  case 0: /* map_fd[0]: rxcnt */
-    file =   file_rxcnt;
-    break;
-  case 1: /* map_fd[1]: vip2tnl */
-    file =   file_vip2tnl;
-    break;
-  case 2: 
-    file =   file_service;
-    break;
-  case 3: 
-    file =   file_linklist;
-    break;
-  case 4: 
-    file =   file_worker;
+  case 0: 
+    file =   file_testmap;
     break;
   default:
     break;
   }
 
-  if (DEBUG) printf("FileNAME: %s \n", file);
+  printf("FileNAME: %s \n", file);
 
   return file;
 }
@@ -84,7 +73,6 @@ static void usage(const char *cmd)
   printf("    -i <ifindex> Interface Index\n");
   printf("    -S use skb-mode\n");
   printf("    -N enforce native mode\n");
-  printf("    -v verbose\n");
   printf("    -h Display this help\n");
 }
 
@@ -202,7 +190,7 @@ void chown_maps(uid_t owner, gid_t group)
 
 int main(int argc, char **argv)
 {
-	const char *optstr = "i:Shvr";
+	const char *optstr = "i:Shqr";
 	struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
 	char filename[256];
 	int opt;
@@ -214,8 +202,8 @@ int main(int argc, char **argv)
 
 	while ((opt = getopt(argc, argv, optstr)) != -1) {
 		switch (opt) {
-		case 'v':
-		  verbose = 1;
+		case 'q':
+		  verbose = 0;
 		  break;
 		case 'r':
 		  rm_xdp_prog = true;

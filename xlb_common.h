@@ -28,10 +28,16 @@
 #define ACTION_ADD      (1<<0)
 #define ACTION_DEL      (1<<1)
 
-static int verbose = 1;
+static int verbose = 0;
+
+//#define DEBUG true 
+#define DEBUG false 
 
 static const char *file_rxcnt = "/sys/fs/bpf/rxcnt";
 static const char *file_vip2tnl   = "/sys/fs/bpf/vip2tnl";
+static const char *file_service   = "/sys/fs/bpf/service";
+static const char *file_linklist   = "/sys/fs/bpf/linklist";
+static const char *file_worker   = "/sys/fs/bpf/worker";
 
 struct vip {
 	union {

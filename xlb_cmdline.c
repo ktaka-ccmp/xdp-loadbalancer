@@ -45,6 +45,7 @@ static void usage(const char *cmd)
 	printf("    -d <dest-ip> Used in the IPTunnel header\n");
 	printf("    -m <dest-MAC> Used in sending the IP Tunneled pkt\n");
 	printf("    -S use skb-mode\n");
+	printf("    -v verbose\n");
 	printf("    -h Display this help\n");
 }
 
@@ -113,18 +114,97 @@ int open_bpf_map(const char *file)
   return fd;
 }
 
-static void vip2tnl_list_all(int fd)
+__u64 conv(char ipadr[])
 {
+  __u64 num=0,val;
+  char *tok,*ptr;
+  tok=strtok(ipadr,".");
+  while( tok != NULL)
+    {
+      val=strtoul(tok,&ptr,0);
+      num=(num << 8) + val;
+      //      printf("(val,num)=(%lu,%lu)\n",val,num);
+      tok=strtok(NULL,".");
+    }
+  return(num);
+}
+
+static void lnklst_add_to_map(int fd, struct iptnl_info *vip , __u64 *head){
+  __u64 key = *head , next, min, max, ipint;
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+
+  assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
+  ipint = conv(ip_txt);
+
+  if ( bpf_map_lookup_elem(fd, &ipint, &next) == 0 ){
+    printf("Worker already exists!\n");
+    return;
+  }
+
+  if ( bpf_map_lookup_elem(fd, &key, &next) == -1 ){ // 1st entry. Create new.
+    next = key;
+    assert(bpf_map_update_elem(fd, &key, &next, BPF_NOEXIST) == 0 );
+
+  } else if ( next == key ){ // 2nd entry. Only one entry exists.
+    assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0 );
+    assert(bpf_map_update_elem(fd, &ipint, &key,  BPF_ANY) == 0 );
+    *head = key < ipint ? key : ipint;
+
+  } else {
+
+    // Find minimum
+    if (key > next){ // if head is the last entry
+      min = next;
+      max = key;
+    } else {
+      while (key < next){
+	key = next;
+	bpf_map_lookup_elem(fd, &key, &next);
+      }
+      max = key;
+      min = next;
+    }
+
+    *head = min;
+
+    if (( ipint < min )||( max < ipint )){ // new entry is the smallest or the largest
+
+      assert(bpf_map_update_elem(fd, &ipint, &min, BPF_ANY) == 0 );
+      assert(bpf_map_update_elem(fd, &max, &ipint, BPF_ANY) == 0 ); // update tail
+
+      *head = min < ipint ? min : ipint;
+
+    } else if ( min < ipint < max ){
+
+      key = min;
+      bpf_map_lookup_elem(fd, &key, &next);
+
+      while ( next < ipint ){ // find the key where (key < ipint < next)
+	key = next;
+	bpf_map_lookup_elem(fd, &key, &next);
+      }
+      assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
+      assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
+    }
+
+  }
+}
+
+static void vip2tnl_list_all()
+{
+  int fd;
   struct vip key = {}, next_key;
   struct iptnl_info value;
   char ip_txt[INET_ADDRSTRLEN] = {0};
   char mac_txt[ETHER_ADDR_LEN] = {0};
+
+  fd = open_bpf_map(file_vip2tnl);
   
   while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
     bpf_map_lookup_elem(fd, &next_key, &value);
 
     assert(inet_ntop(next_key.family, &next_key.daddr.v4, ip_txt, sizeof(ip_txt)));
-    printf("{\n VIP: %s\n" , ip_txt);
+    printf("{\nVIP: %s\n" , ip_txt);
     printf("%d\n", next_key.protocol );
     printf("%d\n", ntohs(next_key.dport));
 
@@ -133,22 +213,177 @@ static void vip2tnl_list_all(int fd)
     assert(inet_ntop(value.family, &value.daddr.v4, ip_txt, sizeof(ip_txt)));
     printf("dst: %s\n", ip_txt );
     assert(ether_ntoa_r(&value.dmac, mac_txt));
-    printf("mac: %s\n }\n", mac_txt );
+    printf("mac: %s\n}\n", mac_txt );
     key = next_key;
   }
+  close(fd);
+}
+
+static void service_list_all()
+{
+
+  struct vip key = {}, next_key;
+  __u64 head;
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+
+  int fd = open_bpf_map(file_service);
+  
+  while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+    bpf_map_lookup_elem(fd, &key, &head);
+    
+    assert(inet_ntop(next_key.family, &next_key.daddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("{\nVIP: %s\n" , ip_txt);
+    printf("%d\n", next_key.protocol );
+    printf("%d\n", ntohs(next_key.dport));
+    printf("head = %lu\n}\n", head);
+
+    key = next_key;
+  }
+
+  close(fd);
+}
+
+static void worker_list_all()
+{
+  __u64 key = 0, next_key;
+  struct iptnl_info value;
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+  char mac_txt[ETHER_ADDR_LEN] = {0};
+
+  int fd = open_bpf_map(file_worker);
+  
+  while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+    bpf_map_lookup_elem(fd, &next_key, &value);
+
+    printf("{\nkey: %lu\n" , next_key);
+
+    assert(inet_ntop(value.family, &value.saddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("src: %s\n", ip_txt );
+    assert(inet_ntop(value.family, &value.daddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("dst: %s\n", ip_txt );
+    assert(ether_ntoa_r(&value.dmac, mac_txt));
+    printf("mac: %s\n}\n", mac_txt );
+    key = next_key;
+  }
+
+  close(fd);
+}
+
+static void linklist_list_all(){
+
+  __u64 key = 0, next_key;
+  __u64 value;
+
+  int fd = open_bpf_map(file_linklist);
+
+  while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+    key = next_key;
+    bpf_map_lookup_elem(fd, &key, &value);
+    printf("(key, value) = (%lu,%Lu)\n" , key, value);
+  }
+  close(fd);
+}
+
+static void linklist_list_all_old( __u64 *head){
+
+  __u64 key = *head, next_key;
+  __u64 next;
+
+  int fd = open_bpf_map(file_linklist);
+
+  assert(bpf_map_lookup_elem(fd, &key, &next) == 0);
+
+  printf("(key, value) = (%lu,%lu)\n" , key, next);
+
+  while (next != *head){
+    key = next;
+    assert(bpf_map_lookup_elem(fd, &key, &next) == 0);
+    printf("(key, value) = (%lu,%lu)\n" , key, next);
+    if (key == next) return;
+  }
+
+  close(fd);
+}
+
+static void show_worker( __u64 *key){
+
+  struct iptnl_info value;
+  char daddr_txt[INET_ADDRSTRLEN] = {0};
+  char saddr_txt[INET_ADDRSTRLEN] = {0};
+  char mac_txt[ETHER_ADDR_LEN] = {0};
+
+  int fd = open_bpf_map(file_worker);
+  
+  bpf_map_lookup_elem(fd, key, &value);
+  assert(inet_ntop(value.family, &value.saddr.v4, saddr_txt, sizeof(saddr_txt)));
+  assert(inet_ntop(value.family, &value.daddr.v4, daddr_txt, sizeof(daddr_txt)));
+  assert(ether_ntoa_r(&value.dmac, mac_txt));
+
+  if (DEBUG) printf("key: %lu\n", *key);
+  printf("    {\n");
+  printf("        src: %s\n", saddr_txt );
+  printf("        dst: %s (%s)\n", daddr_txt, mac_txt );
+  printf("    }\n");
+
+  close(fd);
+}
+
+static void list_worker_from_head( __u64 *head){
+
+  __u64 key = *head;
+  __u64 value = NULL;
+
+  int fd = open_bpf_map(file_linklist);
+
+  printf("{\n");
+  while (value != *head){
+    show_worker(&key);
+    assert(bpf_map_lookup_elem(fd, &key, &value) == 0);
+    key = value;
+  }
+  printf("}\n");
+
+  close(fd);
+}
+
+static void list_all()
+{
+  int fd;
+  struct vip key = {}, next_key;
+  __u64 head;
+  char daddr_txt[INET_ADDRSTRLEN] = {0};
+
+  fd = open_bpf_map(file_service);
+
+  while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+    key = next_key;
+    bpf_map_lookup_elem(fd, &key, &head);
+    
+    assert(inet_ntop(key.family, &key.daddr.v4, daddr_txt, sizeof(daddr_txt)));
+    printf("service: %s:%d(%d) " , daddr_txt, ntohs(key.dport), key.protocol);
+
+    if (DEBUG) printf(", head = %lu ", head);
+
+    list_worker_from_head(&head);
+  }
+
+  close(fd);
 }
 
 int main(int argc, char **argv)
 {
   //	unsigned char opt_flags[256] = {};
-	const char *optstr = "i:A:D:L:u:t:s:d:m:T:P:Sh";
+	const char *optstr = "i:A:D:u:t:s:d:m:T:P:SLvh";
 	int min_port = 0, max_port = 0;
 	struct iptnl_info tnl = {};
 	struct vip vip = {};
 	int opt;
 	
-	int fd_vip2tnl;
-	bool do_list = true;
+	int fd_vip2tnl, fd_service, fd_linklist, fd_worker;
+	__u64 head, daddrint;
+	char ip_txt[INET_ADDRSTRLEN] = {0};
+  
+	bool do_list = false;
 	
         unsigned int action = 0;
 	
@@ -166,6 +401,9 @@ int main(int argc, char **argv)
 		unsigned int *v6;
 
 		switch (opt) {
+		case 'v':
+		  verbose = 1;
+		  break;
 		case 'i':
                   if (strlen(optarg) >= IF_NAMESIZE) {
 		    fprintf(stderr, "ERR: Intereface name too long\n");
@@ -194,9 +432,10 @@ int main(int argc, char **argv)
 		    return 1;
 		  break;
 		case 'L':
-		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
-		  if (vip.family == AF_UNSPEC)
-		    return 1;
+		  //		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
+		  //		  if (vip.family == AF_UNSPEC)
+		  //		    return 1;
+		  do_list = true;
 		  break;
                 case 'u':
 		  vip.protocol = IPPROTO_UDP;
@@ -257,26 +496,55 @@ int main(int argc, char **argv)
 	  return EXIT_FAIL_OPTION;
 	}
 
-	
 	fd_vip2tnl = open_bpf_map(file_vip2tnl);
+	fd_service = open_bpf_map(file_service);
+	fd_linklist = open_bpf_map(file_linklist);
+	fd_worker = open_bpf_map(file_worker);
 
 	while (min_port <= max_port) {
 	  vip.dport = htons(min_port++);
 	  if (action == ACTION_ADD) {
-	    if (bpf_map_update_elem(fd_vip2tnl, &vip, &tnl, BPF_NOEXIST)) {
+	    if (bpf_map_update_elem(fd_vip2tnl, &vip, &tnl, BPF_ANY)) {
 	      perror("bpf_map_update_elem(&vip2tnl)");
 	      return 1;
 	    }
+
+	    if (bpf_map_lookup_elem(fd_service, &vip, &head) == -1 ){
+	      assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+	      head = conv(ip_txt);
+	    }
+
+	    if (verbose) printf("head old = %lu\n", head);
+
+	    lnklst_add_to_map(fd_linklist, &tnl, &head);
+	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
+	    
+	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+	    daddrint = conv(ip_txt);
+
+	    bpf_map_update_elem(fd_worker, &daddrint, &tnl, BPF_ANY);
+
+	    if (verbose) printf("head new = %lu\n", head);
+	    
 	  } else if (action == ACTION_DEL) {
 	    bpf_map_delete_elem(fd_vip2tnl, &vip);
 	  }
 	}
 
-	if (do_list) {
-	  vip2tnl_list_all(fd_vip2tnl);
+	close(fd_vip2tnl);
+	close(fd_service);
+	close(fd_linklist);
+	close(fd_worker);
+	
+	if (DEBUG||verbose||do_list) {
+	  list_all();
 	}
 
-	close(fd_vip2tnl);
+	if (verbose) {
+	  //	  service_list_all();
+	  linklist_list_all();
+	  //	  worker_list_all();
+	}
 
 	return 0;
 }

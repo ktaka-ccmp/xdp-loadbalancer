@@ -254,15 +254,19 @@ static int load_maps(struct bpf_map_data *maps, int nr_maps,
 							maps[i].def.max_entries,
 							maps[i].def.map_flags,
 							numa_node);
-printf("MapType: %d \n", maps[i].def.type);
-printf("MapName: %s \n", maps[i].name);
-printf("MapKeysize: %d \n", maps[i].def.key_size);
-printf("MapValusize: %d \n", maps[i].def.value_size);
-printf("MapMaxEnt: %d \n", maps[i].def.max_entries);
-printf("MapMapFlags: %d \n", maps[i].def.map_flags);
-printf("mapfd: %d \n",  map_fd[i]);
 
-printf("Hello World2\n");
+			/* DEBUG
+			  printf("MapType: %d \n", maps[i].def.type);
+			  printf("MapName: %s \n", maps[i].name);
+			  printf("MapKeysize: %d \n", maps[i].def.key_size);
+			  printf("MapValusize: %d \n", maps[i].def.value_size);
+			  printf("MapMaxEnt: %d \n", maps[i].def.max_entries);
+			  printf("MapMapFlags: %d \n", maps[i].def.map_flags);
+			  printf("mapfd: %d \n",  map_fd[i]);
+			  
+			  printf("Hello World2\n");
+			*/
+
 		}
 		if (map_fd[i] < 0) {
 			printf("failed to create a map: %d %s\n",

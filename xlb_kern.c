@@ -33,6 +33,27 @@ struct bpf_map_def SEC("maps") vip2tnl = {
 	.max_entries = MAX_IPTNL_ENTRIES,
 };
 
+struct bpf_map_def SEC("maps") service = {
+	.type = BPF_MAP_TYPE_HASH,
+	.key_size = sizeof(struct vip),
+	.value_size = sizeof(__u64),
+	.max_entries = MAX_IPTNL_ENTRIES,
+};
+
+struct bpf_map_def SEC("maps") linklist = {
+	.type = BPF_MAP_TYPE_HASH,
+	.key_size = sizeof(__u64),
+	.value_size = sizeof(__u64),
+	.max_entries = MAX_IPTNL_ENTRIES,
+};
+
+struct bpf_map_def SEC("maps") worker = {
+	.type = BPF_MAP_TYPE_HASH,
+	.key_size = sizeof(__u64),
+	.value_size = sizeof(struct iptnl_info),
+	.max_entries = 65536,
+};
+
 static __always_inline void count_tx(u32 protocol)
 {
 	u64 *rxcnt_count;

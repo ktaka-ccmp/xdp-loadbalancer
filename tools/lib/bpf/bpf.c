@@ -80,8 +80,6 @@ int bpf_create_map_node(enum bpf_map_type map_type, const char *name,
 		attr.numa_node = node;
 	}
 
-printf("bpf_create_map_node:\n");
-
 	return sys_bpf(BPF_MAP_CREATE, &attr, sizeof(attr));
 }
 
