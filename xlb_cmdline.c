@@ -195,35 +195,6 @@ static void lnklst_add_to_map(int fd, struct iptnl_info *vip , __u64 *head){
   }
 }
 
-static void vip2tnl_list_all()
-{
-  int fd;
-  struct vip key = {}, next_key;
-  struct iptnl_info value;
-  char ip_txt[INET_ADDRSTRLEN] = {0};
-  char mac_txt[ETHER_ADDR_LEN] = {0};
-
-  fd = open_bpf_map(file_vip2tnl);
-  
-  while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
-    bpf_map_lookup_elem(fd, &next_key, &value);
-
-    assert(inet_ntop(next_key.family, &next_key.daddr.v4, ip_txt, sizeof(ip_txt)));
-    printf("{\nVIP: %s\n" , ip_txt);
-    printf("%d\n", next_key.protocol );
-    printf("%d\n", ntohs(next_key.dport));
-
-    assert(inet_ntop(value.family, &value.saddr.v4, ip_txt, sizeof(ip_txt)));
-    printf("src: %s\n", ip_txt );
-    assert(inet_ntop(value.family, &value.daddr.v4, ip_txt, sizeof(ip_txt)));
-    printf("dst: %s\n", ip_txt );
-    assert(ether_ntoa_r(&value.dmac, mac_txt));
-    printf("mac: %s\n}\n", mac_txt );
-    key = next_key;
-  }
-  close(fd);
-}
-
 static void service_list_all()
 {
 
@@ -234,15 +205,14 @@ static void service_list_all()
   int fd = open_bpf_map(file_service);
   
   while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
+    key = next_key;
     bpf_map_lookup_elem(fd, &key, &head);
     
-    assert(inet_ntop(next_key.family, &next_key.daddr.v4, ip_txt, sizeof(ip_txt)));
+    assert(inet_ntop(key.family, &key.daddr.v4, ip_txt, sizeof(ip_txt)));
     printf("{\nVIP: %s\n" , ip_txt);
-    printf("%d\n", next_key.protocol );
-    printf("%d\n", ntohs(next_key.dport));
+    printf("%d\n", key.protocol );
+    printf("%d\n", ntohs(key.dport));
     printf("head = %lu\n}\n", head);
-
-    key = next_key;
   }
 
   close(fd);
@@ -289,27 +259,6 @@ static void linklist_list_all(){
   close(fd);
 }
 
-static void linklist_list_all_old( __u64 *head){
-
-  __u64 key = *head, next_key;
-  __u64 next;
-
-  int fd = open_bpf_map(file_linklist);
-
-  assert(bpf_map_lookup_elem(fd, &key, &next) == 0);
-
-  printf("(key, value) = (%lu,%lu)\n" , key, next);
-
-  while (next != *head){
-    key = next;
-    assert(bpf_map_lookup_elem(fd, &key, &next) == 0);
-    printf("(key, value) = (%lu,%lu)\n" , key, next);
-    if (key == next) return;
-  }
-
-  close(fd);
-}
-
 static void show_worker( __u64 *key){
 
   struct iptnl_info value;
@@ -325,12 +274,6 @@ static void show_worker( __u64 *key){
   assert(ether_ntoa_r(&value.dmac, mac_txt));
 
   if (DEBUG) printf("key: %lu\n", *key);
-  /*
-  printf("    {\n");
-  printf("        src: %s\n", saddr_txt );
-  printf("        dst: %s (%s)\n", daddr_txt, mac_txt );
-  printf("    }\n");
-  */
 
   printf(" src: %s, dst: %s (%s)\n", saddr_txt, daddr_txt, mac_txt );
 
@@ -434,7 +377,7 @@ int main(int argc, char **argv)
 	struct vip vip = {};
 	int opt;
 	
-	int fd_vip2tnl, fd_service, fd_linklist, fd_worker;
+	int fd_service, fd_linklist, fd_worker;
 	__u64 head, daddrint;
 	char ip_txt[INET_ADDRSTRLEN] = {0};
   
@@ -555,7 +498,6 @@ int main(int argc, char **argv)
 	  return EXIT_FAIL_OPTION;
 	}
 
-	fd_vip2tnl = open_bpf_map(file_vip2tnl);
 	fd_service = open_bpf_map(file_service);
 	fd_linklist = open_bpf_map(file_linklist);
 	fd_worker = open_bpf_map(file_worker);
@@ -563,10 +505,6 @@ int main(int argc, char **argv)
 	while (min_port <= max_port) {
 	  vip.dport = htons(min_port++);
 	  if (action == ACTION_ADD) {
-	    if (bpf_map_update_elem(fd_vip2tnl, &vip, &tnl, BPF_ANY)) {
-	      perror("bpf_map_update_elem(&vip2tnl)");
-	      return 1;
-	    }
 
 	    if (bpf_map_lookup_elem(fd_service, &vip, &head) == -1 ){
 	      assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
@@ -586,11 +524,10 @@ int main(int argc, char **argv)
 	    if (verbose) printf("head new = %lu\n", head);
 	    
 	  } else if (action == ACTION_DEL) {
-	    bpf_map_delete_elem(fd_vip2tnl, &vip);
+
 	  }
 	}
 
-	close(fd_vip2tnl);
 	close(fd_service);
 	close(fd_linklist);
 	close(fd_worker);
@@ -600,9 +537,9 @@ int main(int argc, char **argv)
 	}
 
 	if (verbose) {
-	  //	  service_list_all();
+	  service_list_all();
 	  linklist_list_all();
-	  //	  worker_list_all();
+	  worker_list_all();
 	}
 
 	if (monitor) {

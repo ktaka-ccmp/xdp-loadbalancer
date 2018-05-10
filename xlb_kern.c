@@ -26,13 +26,6 @@ struct bpf_map_def SEC("maps") rxcnt = {
 	.max_entries = 256,
 };
 
-struct bpf_map_def SEC("maps") vip2tnl = {
-	.type = BPF_MAP_TYPE_HASH,
-	.key_size = sizeof(struct vip),
-	.value_size = sizeof(struct iptnl_info),
-	.max_entries = MAX_IPTNL_ENTRIES,
-};
-
 struct bpf_map_def SEC("maps") service = {
 	.type = BPF_MAP_TYPE_HASH,
 	.key_size = sizeof(struct vip),
@@ -198,14 +191,6 @@ static __always_inline int handle_ipv4(struct xdp_md *xdp)
 	if (!tnl || tnl->family != AF_INET)
 	  return XDP_PASS;
 
-	/*
-	tnl = bpf_map_lookup_elem(&vip2tnl, &vip);
-	if (!tnl || tnl->family != AF_INET)
-	  return XDP_PASS;
-	*/
-
-	/* The vip key is found.  Add an IP header and send it out */
-
 	if (bpf_xdp_adjust_head(xdp, 0 - (int)sizeof(struct iphdr)))
 		return XDP_DROP;
 
@@ -246,69 +231,6 @@ static __always_inline int handle_ipv4(struct xdp_md *xdp)
 	return XDP_TX;
 }
 
-static __always_inline int handle_ipv6(struct xdp_md *xdp)
-{
-	void *data_end = (void *)(long)xdp->data_end;
-	void *data = (void *)(long)xdp->data;
-	struct iptnl_info *tnl;
-	struct ethhdr *new_eth;
-	struct ethhdr *old_eth;
-	struct ipv6hdr *ip6h = data + sizeof(struct ethhdr);
-	__u16 payload_len;
-	struct vip vip = {};
-	int dport;
-
-	if (ip6h + 1 > data_end)
-		return XDP_DROP;
-
-	dport = get_dport(ip6h + 1, data_end, ip6h->nexthdr);
-	if (dport == -1)
-		return XDP_DROP;
-
-	vip.protocol = ip6h->nexthdr;
-	vip.family = AF_INET6;
-	memcpy(vip.daddr.v6, ip6h->daddr.s6_addr32, sizeof(vip.daddr));
-	vip.dport = dport;
-	payload_len = ip6h->payload_len;
-
-	tnl = bpf_map_lookup_elem(&vip2tnl, &vip);
-	/* It only does v6-in-v6 */
-	if (!tnl || tnl->family != AF_INET6)
-		return XDP_PASS;
-
-	/* The vip key is found.  Add an IP header and send it out */
-
-	if (bpf_xdp_adjust_head(xdp, 0 - (int)sizeof(struct ipv6hdr)))
-		return XDP_DROP;
-
-	data = (void *)(long)xdp->data;
-	data_end = (void *)(long)xdp->data_end;
-
-	new_eth = data;
-	ip6h = data + sizeof(*new_eth);
-	old_eth = data + sizeof(*ip6h);
-
-	if (new_eth + 1 > data_end ||
-	    old_eth + 1 > data_end ||
-	    ip6h + 1 > data_end)
-		return XDP_DROP;
-
-	set_ethhdr(new_eth, old_eth, tnl, htons(ETH_P_IPV6));
-
-	ip6h->version = 6;
-	ip6h->priority = 0;
-	memset(ip6h->flow_lbl, 0, sizeof(ip6h->flow_lbl));
-	ip6h->payload_len = htons(ntohs(payload_len) + sizeof(*ip6h));
-	ip6h->nexthdr = IPPROTO_IPV6;
-	ip6h->hop_limit = 8;
-	memcpy(ip6h->saddr.s6_addr32, tnl->saddr.v6, sizeof(tnl->saddr.v6));
-	memcpy(ip6h->daddr.s6_addr32, tnl->daddr.v6, sizeof(tnl->daddr.v6));
-
-	count_tx(vip.protocol);
-
-	return XDP_TX;
-}
-
 SEC("xdp_tx_iptunnel")
 int _xdp_tx_iptunnel(struct xdp_md *xdp)
 {
@@ -324,9 +246,6 @@ int _xdp_tx_iptunnel(struct xdp_md *xdp)
 
 	if (h_proto == htons(ETH_P_IP))
 		return handle_ipv4(xdp);
-	else if (h_proto == htons(ETH_P_IPV6))
-
-		return handle_ipv6(xdp);
 	else
 		return XDP_PASS;
 }
