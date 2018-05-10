@@ -36,7 +36,7 @@ static char *ifname = NULL;
 static int ifindex = -1;
 static __u32 xdp_flags = 0;
 
-#define NR_MAPS 5
+#define NR_MAPS 6
 int maps_marked_for_export[MAX_MAPS] = { 0 };
 
 static const char* map_idx_to_export_filename(int idx)
@@ -59,6 +59,9 @@ static const char* map_idx_to_export_filename(int idx)
     break;
   case 4:
     file =   file_lbcache;
+    break;
+  case 5:
+    file =   file_svcid;
     break;
   default:
     break;

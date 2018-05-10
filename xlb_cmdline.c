@@ -119,9 +119,9 @@ int open_bpf_map(const char *file)
   return fd;
 }
 
-__u64 conv(char ipadr[])
+__u64 conv(char ipadr[], __u8 svcid)
 {
-  __u64 num=0,val;
+  __u64 num=svcid, val;
   char *tok,*ptr;
   tok=strtok(ipadr,".");
   while( tok != NULL)
@@ -139,7 +139,7 @@ static void lnklst_add_to_map(int fd, struct iptnl_info *vip , __u64 *head){
   char ip_txt[INET_ADDRSTRLEN] = {0};
 
   assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
-  ipint = conv(ip_txt);
+  ipint = conv(ip_txt, *head>>32);
 
   if ( bpf_map_lookup_elem(fd, &ipint, &next) == 0 ){
     printf("Worker already exists!\n");
@@ -339,8 +339,6 @@ static void list_lbcache()
     key = next_key;
     bpf_map_lookup_elem(fd, &key, &wkid);
 
-    __u32 test_ip = key.vip.daddr.v4;
-
     inet_ntop(key.vip.family, &key.vip.daddr.v4, daddr_txt, sizeof(daddr_txt));
     inet_ntop(key.sip.family, &key.sip.saddr.v4, saddr_txt, sizeof(saddr_txt));
 
@@ -374,10 +372,10 @@ int main(int argc, char **argv)
 	const char *optstr = "i:A:D:u:t:s:d:m:T:P:SLlvh";
 	int min_port = 0, max_port = 0;
 	struct iptnl_info tnl = {};
-	struct vip vip = {};
-	int opt;
+	struct vip vip_tmp, vip = {};
+	int opt, i, svcid = 0;
 	
-	int fd_service, fd_linklist, fd_worker;
+	int fd_service, fd_linklist, fd_worker, fd_svcid;
 	__u64 head, daddrint;
 	char ip_txt[INET_ADDRSTRLEN] = {0};
   
@@ -501,23 +499,37 @@ int main(int argc, char **argv)
 	fd_service = open_bpf_map(file_service);
 	fd_linklist = open_bpf_map(file_linklist);
 	fd_worker = open_bpf_map(file_worker);
+	fd_svcid = open_bpf_map(file_svcid);
 
 	while (min_port <= max_port) {
 	  vip.dport = htons(min_port++);
 	  if (action == ACTION_ADD) {
 
+	    // Check if the service already exists.
+	    // If not, assign svcid and create head(32+8 bit number).
 	    if (bpf_map_lookup_elem(fd_service, &vip, &head) == -1 ){
+	      for (i = 1; i < MAX_SVC_ENTRIES ; i++)
+		if (bpf_map_lookup_elem(fd_svcid, &i, &vip_tmp) == -1 ){
+		  svcid = i ;
+		  bpf_map_update_elem(fd_svcid, &i, &vip, BPF_NOEXIST);
+		  break ;
+		}
+	      if (svcid == 0) return EXIT_FAIL;
+	      
 	      assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
-	      head = conv(ip_txt);
+	      head = conv(ip_txt,svcid);
 	    }
 
 	    if (verbose) printf("head old = %lu\n", head);
 
+	    // Insert wkrtag into the linked-list.
 	    lnklst_add_to_map(fd_linklist, &tnl, &head);
+	    // Create service map entry.
 	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
-	    
+
+	    // Create worker map entry.
 	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
-	    daddrint = conv(ip_txt);
+	    daddrint = conv(ip_txt, head>>32);
 
 	    bpf_map_update_elem(fd_worker, &daddrint, &tnl, BPF_ANY);
 
@@ -531,6 +543,7 @@ int main(int argc, char **argv)
 	close(fd_service);
 	close(fd_linklist);
 	close(fd_worker);
+	close(fd_svcid);
 	
 	if (DEBUG||verbose||do_list) {
 	  list_all();

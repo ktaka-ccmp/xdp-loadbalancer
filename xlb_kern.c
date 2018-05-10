@@ -56,6 +56,13 @@ struct bpf_map_def SEC("maps") lbcache = {
   //  .max_entries = 65536,
 };
 
+struct bpf_map_def SEC("maps") svcid = {
+  .type = BPF_MAP_TYPE_HASH,
+  .key_size = sizeof(__u8),
+  .value_size = sizeof(struct vip),
+  .max_entries = 256,
+};
+
 static __always_inline void count_tx(u32 protocol)
 {
 	u64 *rxcnt_count;
