@@ -48,20 +48,20 @@ static const char* map_idx_to_export_filename(int idx)
   case 0: /* map_fd[0]: rxcnt */
     file =   file_rxcnt;
     break;
-  case 1: /* map_fd[1]: vip2tnl */
-    file =   file_vip2tnl;
-    break;
-  case 2: 
+  case 1: 
     file =   file_service;
     break;
-  case 3: 
+  case 2: 
     file =   file_linklist;
     break;
-  case 4: 
+  case 3: 
     file =   file_worker;
     break;
-  case 5:
+  case 4:
     file =   file_lbcache;
+    break;
+  case 5:
+    file =   file_svcid;
     break;
   default:
     break;

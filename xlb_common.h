@@ -27,6 +27,7 @@
 #define EXIT_FAIL_BPF_RELOCATE  42
 
 #define MAX_IPTNL_ENTRIES 256U
+#define MAX_SVC_ENTRIES 256U
 
 #define ACTION_ADD      (1<<0)
 #define ACTION_DEL      (1<<1)
@@ -37,11 +38,11 @@ static int verbose = 0;
 #define DEBUG false 
 
 static const char *file_rxcnt = "/sys/fs/bpf/rxcnt";
-static const char *file_vip2tnl   = "/sys/fs/bpf/vip2tnl";
 static const char *file_service   = "/sys/fs/bpf/service";
 static const char *file_linklist   = "/sys/fs/bpf/linklist";
 static const char *file_worker   = "/sys/fs/bpf/worker";
 static const char *file_lbcache   = "/sys/fs/bpf/lbcache";
+static const char *file_svcid   = "/sys/fs/bpf/svcid";
 
 struct vip {
 	union {
