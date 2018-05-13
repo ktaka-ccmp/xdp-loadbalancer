@@ -37,7 +37,7 @@ static int verbose = 0;
 //#define DEBUG true 
 #define DEBUG false 
 
-static const char *file_rxcnt = "/sys/fs/bpf/rxcnt";
+// static const char *file_rxcnt = "/sys/fs/bpf/rxcnt";
 static const char *file_service   = "/sys/fs/bpf/service";
 static const char *file_linklist   = "/sys/fs/bpf/linklist";
 static const char *file_worker   = "/sys/fs/bpf/worker";

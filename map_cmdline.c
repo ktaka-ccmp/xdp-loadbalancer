@@ -78,7 +78,7 @@ __u64 conv(char ipadr[])
     {
       val=strtoul(tok,&ptr,0);
       num=(num << 8) + val;
-      //      printf("(val,num)=(%lu,%lu)\n",val,num);
+      //      printf("(val,num)=(%llu,%llu)\n",val,num);
       tok=strtok(NULL,".");
     }
   return(num);
@@ -91,8 +91,8 @@ static void add_to_map(int fd, struct vip *vip , __u64 *head){
   
   assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
   ipint = conv(ip_txt);
-  //  printf("head = %lu\n", *head);
-  //    printf("ipint = %lu\n", ipint);
+  //  printf("head = %llu\n", *head);
+  //    printf("ipint = %llu\n", ipint);
 
   //  printf("result = %d\n", bpf_map_lookup_elem(fd, &ipint, &next));
   //  return;
@@ -125,7 +125,7 @@ static void add_to_map(int fd, struct vip *vip , __u64 *head){
 
   key = min;
   bpf_map_lookup_elem(fd, &key, &next);
-  printf("hello3 (key, value) = (%lu,%lu)\n" , key, next);
+  printf("hello3 (key, value) = (%llu,%llu)\n" , key, next);
 
   if ( ipint < min ){
     assert(bpf_map_update_elem(fd, &ipint, &min, BPF_ANY) == 0 );
@@ -135,7 +135,7 @@ static void add_to_map(int fd, struct vip *vip , __u64 *head){
       bpf_map_lookup_elem(fd, &key, &next);
     }
 
-    printf("hello1 (key, value) = (%lu,%lu)\n" , key, next);
+    printf("hello1 (key, value) = (%llu,%llu)\n" , key, next);
     
     assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
     min = ipint;
@@ -155,12 +155,12 @@ static void add_to_map(int fd, struct vip *vip , __u64 *head){
 	if ((key < ipint) && ( ipint < next )){
 	  assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
 	  assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
-	printf("hello5 (key, value) = (%lu,%lu)\n" , key, next);
+	printf("hello5 (key, value) = (%llu,%llu)\n" , key, next);
 	  return;
 	} else if (ipint > next){
 	  assert(bpf_map_update_elem(fd, &key, &ipint, BPF_ANY) == 0);
 	  assert(bpf_map_update_elem(fd, &ipint, &next, BPF_ANY) == 0);
-	printf("hello2 (key, value) = (%lu,%lu)\n" , key, next);
+	printf("hello2 (key, value) = (%llu,%llu)\n" , key, next);
 	  return;
 	}
       }
@@ -175,12 +175,12 @@ static void list_map_all(int fd, __u64 *head){
 
   assert(bpf_map_lookup_elem(fd, &key, &next) == 0);
 
-  printf("(key, value) = (%lu,%lu)\n" , key, next);
+  printf("(key, value) = (%llu,%llu)\n" , key, next);
 
   while (next != *head){
     key = next;
     assert(bpf_map_lookup_elem(fd, &key, &next) == 0);
-    printf("(key, value) = (%lu,%lu)\n" , key, next);
+    printf("(key, value) = (%llu,%llu)\n" , key, next);
     if (key == next) return;
   }
 }
