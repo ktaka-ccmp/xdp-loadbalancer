@@ -1,9 +1,7 @@
 #
 TARGETS := xlb
-TARGETS += map
 
 CMDLINE_TOOLS := xlb_cmdline
-CMDLINE_TOOLS += map_cmdline
 COMMON_H      =  ${CMDLINE_TOOLS:_cmdline=_common.h}
 
 # Generate file name-scheme based on TARGETS
