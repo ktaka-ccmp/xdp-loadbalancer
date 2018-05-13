@@ -268,7 +268,8 @@ static void show_worker( __u64 *key){
 
   int fd = open_bpf_map(file_worker);
   
-  bpf_map_lookup_elem(fd, key, &value);
+  if (bpf_map_lookup_elem(fd, key, &value) == -1 ) return;
+
   assert(inet_ntop(value.family, &value.saddr.v4, saddr_txt, sizeof(saddr_txt)));
   assert(inet_ntop(value.family, &value.daddr.v4, daddr_txt, sizeof(daddr_txt)));
   assert(ether_ntoa_r((struct ether_addr *)value.dmac, mac_txt));
@@ -290,7 +291,7 @@ static void list_worker_from_head( __u64 *head){
   printf("{\n");
   while (value != *head){
     show_worker(&key);
-    assert(bpf_map_lookup_elem(fd, &key, &value) == 0);
+    if (bpf_map_lookup_elem(fd, &key, &value) != 0) break;
     key = value;
   }
   printf("}\n");
@@ -369,7 +370,7 @@ static void list_lbcache()
 int main(int argc, char **argv)
 {
   //	unsigned char opt_flags[256] = {};
-	const char *optstr = "i:A:D:u:t:s:d:m:T:P:SLlvh";
+	const char *optstr = "i:A:D:a:d:r:s:m:p:SLlvhut";
 	int min_port = 0, max_port = 0;
 	struct iptnl_info tnl = {};
 	struct vip vip_tmp, vip = {};
@@ -382,7 +383,7 @@ int main(int argc, char **argv)
 	bool do_list = false;
 	bool monitor = false;
 	
-        unsigned int action = 0;
+        enum action action = ACTION_LIST;
 	
 	tnl.family = AF_UNSPEC;
 	vip.protocol = IPPROTO_TCP;
@@ -416,18 +417,30 @@ int main(int argc, char **argv)
 		    goto error;
 		  }
 		  break;
-		case 'D':
-		  action |= ACTION_DEL;
-		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
-		  if (vip.family == AF_UNSPEC)
-		    return 1;
-        	  break;
 		case 'A':
-		  action |= ACTION_ADD;
+		  action = ACTION_ADD_SVC;
 		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
 		  if (vip.family == AF_UNSPEC)
 		    return 1;
 		  break;
+		case 'D':
+		  action = ACTION_DEL_SVC;
+		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
+		  if (vip.family == AF_UNSPEC)
+		    return 1;
+        	  break;
+		case 'a':
+		  action = ACTION_ADD_REAL;
+		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
+		  if (vip.family == AF_UNSPEC)
+		    return 1;
+		  break;
+		case 'd':
+		  action = ACTION_DEL_REAL;
+		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
+		  if (vip.family == AF_UNSPEC)
+		    return 1;
+        	  break;
 		case 'L':
 		  //		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
 		  //		  if (vip.family == AF_UNSPEC)
@@ -439,12 +452,16 @@ int main(int argc, char **argv)
 		  break;
                 case 'u':
 		  vip.protocol = IPPROTO_UDP;
+		  break;
 		case 't':
+		  vip.protocol = IPPROTO_TCP;
+		  break;
+		case 'p':
 		  if (parse_ports(optarg, &min_port, &max_port))
 		    return 1;
 		  break;
 		case 's':
-		case 'd':
+		case 'r':
 			if (opt == 's')
 				v6 = tnl.saddr.v6;
 			else
@@ -503,7 +520,7 @@ int main(int argc, char **argv)
 
 	while (min_port <= max_port) {
 	  vip.dport = htons(min_port++);
-	  if (action == ACTION_ADD) {
+	  if (action == ACTION_ADD_SVC) {
 
 	    // Check if the service already exists.
 	    // If not, assign svcid and create head(32+8 bit number).
@@ -515,16 +532,43 @@ int main(int argc, char **argv)
 		  break ;
 		}
 	      if (svcid == 0) return EXIT_FAIL;
-	      
-	      assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
-	      head = conv(ip_txt,svcid);
+
+	      strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
+	      head = conv(ip_txt, svcid);
+
+	      // Create service map entry.
+	      bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_NOEXIST);
+	    } else {
+	      //Service already exists.
+	      return EXIT_FAIL;
+	    }
+
+	  } else if (action == ACTION_ADD_REAL) {
+
+	    // Check if the service exists.
+	    if (bpf_map_lookup_elem(fd_service, &vip, &head) == -1 ){
+	      // Non existent service
+	      return EXIT_FAIL;
+	    }
+	    svcid = head>>32;
+	    if (bpf_map_lookup_elem(fd_svcid, &svcid, &vip_tmp) == -1 ){
+	      // Non service id ? Something wrong
+	      return EXIT_FAIL;
+	    }
+
+	    strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
+
+	    if (head == conv(ip_txt,svcid)) { 
+		assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+		head = conv(ip_txt,svcid);
 	    }
 
 	    if (verbose) printf("head old = %llu\n", head);
 
 	    // Insert wkrtag into the linked-list.
 	    lnklst_add_to_map(fd_linklist, &tnl, &head);
-	    // Create service map entry.
+
+	    // Update service map entry with new head.
 	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
 
 	    // Create worker map entry.
@@ -535,7 +579,29 @@ int main(int argc, char **argv)
 
 	    if (verbose) printf("head new = %llu\n", head);
 	    
-	  } else if (action == ACTION_DEL) {
+	  } else if (action == ACTION_DEL_REAL) {
+
+	    // Check if the service already exists.
+	    // Determine svcid 
+	    bpf_map_lookup_elem(fd_service, &vip, &head);
+	    svcid = head>>32;
+	    bpf_map_lookup_elem(fd_svcid, &svcid, &vip_tmp);
+
+	      
+	      assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+	      head = conv(ip_txt,svcid);
+
+	    
+	    // Insert wkrtag into the linked-list.
+	    lnklst_add_to_map(fd_linklist, &tnl, &head);
+	    // Create service map entry.
+	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
+
+	    // Create worker map entry.
+	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+	    daddrint = conv(ip_txt, head>>32);
+
+	    bpf_map_update_elem(fd_worker, &daddrint, &tnl, BPF_ANY);
 
 	  }
 	}
