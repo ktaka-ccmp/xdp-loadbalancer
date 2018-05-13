@@ -19,13 +19,6 @@
 #include "bpf_helpers.h"
 #include "xlb_common.h"
 
-struct bpf_map_def SEC("maps") rxcnt = {
-	.type = BPF_MAP_TYPE_PERCPU_ARRAY,
-	.key_size = sizeof(__u32),
-	.value_size = sizeof(__u64),
-	.max_entries = 256,
-};
-
 struct bpf_map_def SEC("maps") service = {
 	.type = BPF_MAP_TYPE_HASH,
 	.key_size = sizeof(struct vip),
@@ -62,15 +55,6 @@ struct bpf_map_def SEC("maps") svcid = {
   .value_size = sizeof(struct vip),
   .max_entries = 256,
 };
-
-static __always_inline void count_tx(u32 protocol)
-{
-	u64 *rxcnt_count;
-
-	rxcnt_count = bpf_map_lookup_elem(&rxcnt, &protocol);
-	if (rxcnt_count)
-		*rxcnt_count += 1;
-}
 
 static __always_inline int get_dport(void *trans_data, void *data_end,
 				     u8 protocol)
@@ -232,8 +216,6 @@ static __always_inline int handle_ipv4(struct xdp_md *xdp)
 		csum += *next_iph_u16++;
 
 	iph->check = ~((csum & 0xffff) + (csum >> 16));
-
-	count_tx(vip.protocol);
 
 	return XDP_TX;
 }

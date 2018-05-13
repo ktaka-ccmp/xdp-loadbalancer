@@ -128,7 +128,7 @@ __u64 conv(char ipadr[], __u8 svcid)
     {
       val=strtoul(tok,&ptr,0);
       num=(num << 8) + val;
-      //      printf("(val,num)=(%lu,%lu)\n",val,num);
+      //      printf("(val,num)=(%llu,%llu)\n",val,num);
       tok=strtok(NULL,".");
     }
   return(num);
@@ -179,7 +179,7 @@ static void lnklst_add_to_map(int fd, struct iptnl_info *vip , __u64 *head){
 
       *head = min < ipint ? min : ipint;
 
-    } else if ( min < ipint < max ){
+    } else if (( min < ipint ) && ( ipint < max )){
 
       key = min;
       bpf_map_lookup_elem(fd, &key, &next);
@@ -212,7 +212,7 @@ static void service_list_all()
     printf("{\nVIP: %s\n" , ip_txt);
     printf("%d\n", key.protocol );
     printf("%d\n", ntohs(key.dport));
-    printf("head = %lu\n}\n", head);
+    printf("head = %llu\n}\n", head);
   }
 
   close(fd);
@@ -230,13 +230,13 @@ static void worker_list_all()
   while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
     bpf_map_lookup_elem(fd, &next_key, &value);
 
-    printf("{\nkey: %lu\n" , next_key);
+    printf("{\nkey: %llu\n" , next_key);
 
     assert(inet_ntop(value.family, &value.saddr.v4, ip_txt, sizeof(ip_txt)));
     printf("src: %s\n", ip_txt );
     assert(inet_ntop(value.family, &value.daddr.v4, ip_txt, sizeof(ip_txt)));
     printf("dst: %s\n", ip_txt );
-    assert(ether_ntoa_r(&value.dmac, mac_txt));
+    assert(ether_ntoa_r((struct ether_addr *)value.dmac, mac_txt));
     printf("mac: %s\n}\n", mac_txt );
     key = next_key;
   }
@@ -254,7 +254,7 @@ static void linklist_list_all(){
   while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
     key = next_key;
     bpf_map_lookup_elem(fd, &key, &value);
-    printf("(key, value) = (%lu,%Lu)\n" , key, value);
+    printf("(key, value) = (%llu,%llu)\n" , key, value);
   }
   close(fd);
 }
@@ -271,9 +271,9 @@ static void show_worker( __u64 *key){
   bpf_map_lookup_elem(fd, key, &value);
   assert(inet_ntop(value.family, &value.saddr.v4, saddr_txt, sizeof(saddr_txt)));
   assert(inet_ntop(value.family, &value.daddr.v4, daddr_txt, sizeof(daddr_txt)));
-  assert(ether_ntoa_r(&value.dmac, mac_txt));
+  assert(ether_ntoa_r((struct ether_addr *)value.dmac, mac_txt));
 
-  if (DEBUG) printf("key: %lu\n", *key);
+  if (DEBUG) printf("key: %llu\n", *key);
 
   printf(" src: %s, dst: %s (%s)\n", saddr_txt, daddr_txt, mac_txt );
 
@@ -283,7 +283,7 @@ static void show_worker( __u64 *key){
 static void list_worker_from_head( __u64 *head){
 
   __u64 key = *head;
-  __u64 value = NULL;
+  __u64 value;
 
   int fd = open_bpf_map(file_linklist);
 
@@ -314,7 +314,7 @@ static void list_all()
     assert(inet_ntop(key.family, &key.daddr.v4, daddr_txt, sizeof(daddr_txt)));
     printf("service: %s:%d(%d) " , daddr_txt, ntohs(key.dport), key.protocol);
 
-    if (DEBUG) printf(", head = %lu ", head);
+    if (DEBUG) printf(", head = %llu ", head);
 
     list_worker_from_head(&head);
   }
@@ -357,7 +357,7 @@ static void list_lbcache()
     //    inet_ntop(value.family, &value.saddr.v4, saddr_txt, sizeof(saddr_txt));
     //    printf("%s ", w_saddr_txt);
     inet_ntop(value.family, &value.daddr.v4, daddr_txt, sizeof(daddr_txt));
-    ether_ntoa_r(&value.dmac, mac_txt);
+    ether_ntoa_r((struct ether_addr *)value.dmac, mac_txt);
     printf("%s (%s)\n", daddr_txt, mac_txt );
 
   }
@@ -520,7 +520,7 @@ int main(int argc, char **argv)
 	      head = conv(ip_txt,svcid);
 	    }
 
-	    if (verbose) printf("head old = %lu\n", head);
+	    if (verbose) printf("head old = %llu\n", head);
 
 	    // Insert wkrtag into the linked-list.
 	    lnklst_add_to_map(fd_linklist, &tnl, &head);
@@ -533,7 +533,7 @@ int main(int argc, char **argv)
 
 	    bpf_map_update_elem(fd_worker, &daddrint, &tnl, BPF_ANY);
 
-	    if (verbose) printf("head new = %lu\n", head);
+	    if (verbose) printf("head new = %llu\n", head);
 	    
 	  } else if (action == ACTION_DEL) {
 
