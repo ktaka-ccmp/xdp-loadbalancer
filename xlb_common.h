@@ -29,8 +29,16 @@
 #define MAX_IPTNL_ENTRIES 256U
 #define MAX_SVC_ENTRIES 256U
 
-#define ACTION_ADD      (1<<0)
-#define ACTION_DEL      (1<<1)
+//#define ACTION_ADD      (1<<0)
+//#define ACTION_DEL      (1<<1)
+
+enum action {
+  ACTION_LIST,
+  ACTION_ADD_SVC,
+  ACTION_DEL_SVC,
+  ACTION_ADD_REAL,
+  ACTION_DEL_REAL
+};
 
 static int verbose = 0;
 
