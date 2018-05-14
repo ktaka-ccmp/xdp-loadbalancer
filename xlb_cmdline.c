@@ -195,6 +195,81 @@ static void lnklst_add_to_map(int fd, struct iptnl_info *vip , __u64 *head){
   }
 }
 
+static void lnklst_del_from_map(int fd, struct iptnl_info *vip , __u64 *head){
+  __u64 key = *head , next, min, max, ipint;
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+
+  int svcint = *head>>32;
+  
+  assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
+  ipint = conv(ip_txt, svcint);
+
+  if ( bpf_map_lookup_elem(fd, &ipint, &next) != 0 ){
+    printf("Worker does not exist!\n");
+    return;
+  }
+
+  if ( ipint == next ) {// last entry. Delete & update head
+
+    assert(bpf_map_delete_elem(fd, &ipint) == 0 );
+    strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
+    *head = conv(ip_txt, svcint);
+  
+  } else {
+    bpf_map_lookup_elem(fd, &key, &next);
+    // Find minimum
+    if (key > next){ // if head is the last entry
+      min = next;
+      max = key;
+    } else {
+      while (key < next){
+	key = next;
+	bpf_map_lookup_elem(fd, &key, &next);
+      }
+      min = next;
+      max = key;
+    }
+
+    *head = min;
+
+    if ( ipint == min ){ // new entry is the smallest or the largest
+
+      bpf_map_lookup_elem(fd, &ipint, &next);
+
+      assert(bpf_map_update_elem(fd, &max, &next, BPF_ANY) == 0 );
+      assert(bpf_map_delete_elem(fd, &ipint) == 0 );
+
+      *head = next;
+
+    } else if ( max == ipint ){ // new entry is the smallest or the largest
+
+      key = min;
+      bpf_map_lookup_elem(fd, &key, &next);
+
+      while ( next < ipint ){ // find the key where (key < ipint = next = max)
+	key = next;
+	bpf_map_lookup_elem(fd, &key, &next);
+      }
+      assert(bpf_map_update_elem(fd, &key, &min, BPF_ANY) == 0);
+      assert(bpf_map_delete_elem(fd, &ipint) == 0);
+
+    } else if (( min < ipint ) && ( ipint < max ) ){
+
+      key = min;
+      bpf_map_lookup_elem(fd, &key, &next);
+
+      while ( next < ipint ){ // find the key where (key < ipint = next)
+	key = next;
+	bpf_map_lookup_elem(fd, &key, &next);
+      }
+      bpf_map_lookup_elem(fd, &ipint, &next); 
+      assert(bpf_map_update_elem(fd, &key, &next, BPF_ANY) == 0);
+      assert(bpf_map_delete_elem(fd, &ipint) == 0);
+    }
+
+  }
+}
+
 static void service_list_all()
 {
 
@@ -573,7 +648,7 @@ int main(int argc, char **argv)
 
 	    // Create worker map entry.
 	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
-	    daddrint = conv(ip_txt, head>>32);
+	    daddrint = conv(ip_txt, svcid);
 
 	    bpf_map_update_elem(fd_worker, &daddrint, &tnl, BPF_ANY);
 
@@ -585,24 +660,47 @@ int main(int argc, char **argv)
 	    // Determine svcid 
 	    bpf_map_lookup_elem(fd_service, &vip, &head);
 	    svcid = head>>32;
-	    bpf_map_lookup_elem(fd_svcid, &svcid, &vip_tmp);
+	    //	    bpf_map_lookup_elem(fd_svcid, &svcid, &vip_tmp);
 
-	      
-	      assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
-	      head = conv(ip_txt,svcid);
+	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+	    head = conv(ip_txt,svcid);
 
-	    
 	    // Insert wkrtag into the linked-list.
-	    lnklst_add_to_map(fd_linklist, &tnl, &head);
-	    // Create service map entry.
+	    lnklst_del_from_map(fd_linklist, &tnl, &head);
+
+	    // Update service map entry with new head.
 	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
 
-	    // Create worker map entry.
+	    // Delete worker map entry.
 	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
-	    daddrint = conv(ip_txt, head>>32);
+	    daddrint = conv(ip_txt, svcid);
 
-	    bpf_map_update_elem(fd_worker, &daddrint, &tnl, BPF_ANY);
+	    bpf_map_delete_elem(fd_worker, &daddrint);
 
+	  } else if (action == ACTION_DEL_SVC) {
+	    struct vip key = {}, next_key;
+
+	    bpf_map_get_next_key(fd_service, &key, &next_key);
+	    bpf_map_lookup_elem(fd_service, &next_key, &head);
+	    printf("head = %llu\n",head);
+	      
+	    bpf_map_lookup_elem(fd_service, &vip, &head);
+	    printf("head = %llu\n",head);
+	    svcid = head>>32;
+
+	    strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
+
+	    printf("svcid = %d\n",svcid);
+	    printf("head = %llu\n",head);
+	    printf("conv = %llu\n",conv(ip_txt,svcid));
+	    
+	    if (head == conv(ip_txt,svcid)) { 
+	    printf("Delete loop\n");
+	      bpf_map_delete_elem(fd_service, &vip);
+	      bpf_map_delete_elem(fd_svcid, &svcid);
+	    } else {
+	      return EXIT_FAIL;
+	    }
 	  }
 	}
 
