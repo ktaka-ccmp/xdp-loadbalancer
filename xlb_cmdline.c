@@ -121,9 +121,14 @@ int open_bpf_map(const char *file)
 
 __u64 conv(char ipadr[], __u8 svcid)
 {
+  
   __u64 num=svcid, val;
   char *tok,*ptr;
-  tok=strtok(ipadr,".");
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+  
+  strncpy(ip_txt, ipadr, INET_ADDRSTRLEN);
+
+  tok=strtok(ip_txt,".");
   while( tok != NULL)
     {
       val=strtoul(tok,&ptr,0);
@@ -678,24 +683,13 @@ int main(int argc, char **argv)
 	    bpf_map_delete_elem(fd_worker, &daddrint);
 
 	  } else if (action == ACTION_DEL_SVC) {
-	    struct vip key = {}, next_key;
 
-	    bpf_map_get_next_key(fd_service, &key, &next_key);
-	    bpf_map_lookup_elem(fd_service, &next_key, &head);
-	    printf("head = %llu\n",head);
-	      
 	    bpf_map_lookup_elem(fd_service, &vip, &head);
-	    printf("head = %llu\n",head);
 	    svcid = head>>32;
 
 	    strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
 
-	    printf("svcid = %d\n",svcid);
-	    printf("head = %llu\n",head);
-	    printf("conv = %llu\n",conv(ip_txt,svcid));
-	    
 	    if (head == conv(ip_txt,svcid)) { 
-	    printf("Delete loop\n");
 	      bpf_map_delete_elem(fd_service, &vip);
 	      bpf_map_delete_elem(fd_svcid, &svcid);
 	    } else {

@@ -13,10 +13,14 @@
 
 ./xlb_cmdline -i eth0 -L
 
+echo
+read -p "Type enter to continue ..." choice
+echo
+
 ./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.22
 ./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.23
 ./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.24
-./xlb_cmdline -i eth0 -D 10.1.4.1 
+./xlb_cmdline -i eth0 -D 10.1.4.1 -p 80
 ./xlb_cmdline -i eth0 -L -v
 
 echo
@@ -25,6 +29,6 @@ echo
 
 ./xlb_cmdline -i eth0 -d 10.1.4.2 -p 80 -r 10.0.0.23
 ./xlb_cmdline -i eth0 -d 10.1.4.2 -p 80 -r 10.0.0.24
-./xlb_cmdline -i eth0 -D 10.1.4.2 
+./xlb_cmdline -i eth0 -D 10.1.4.2 -p 80 
 ./xlb_cmdline -i eth0 -L -v
 
