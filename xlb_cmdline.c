@@ -119,7 +119,7 @@ int open_bpf_map(const char *file)
   return fd;
 }
 
-__u64 conv(char ipadr[], __u8 svcid)
+__u64 conv(char ipadr[], __u16 svcid)
 {
   
   __u64 num=svcid, val;
@@ -459,7 +459,8 @@ int main(int argc, char **argv)
 	int min_port = 0, max_port = 0;
 	struct iptnl_info tnl = {}, tnl_tmp = {};
 	struct vip vip_tmp, vip = {};
-	int opt, i, svcid = 0;
+	int opt, i;
+	__u16 svcid = 0;
 	
 	int fd_service, fd_linklist, fd_worker, fd_svcid;
 	__u64 head, daddrint;
