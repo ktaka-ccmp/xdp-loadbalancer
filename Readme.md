@@ -45,9 +45,6 @@ src: 10.0.0.27, dst: 10.0.0.24 (52:54:0:11:0:18)
 }
 ```
 
-
-
-
 Delete real servers
 ```
 ./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.22
