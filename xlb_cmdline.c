@@ -381,7 +381,7 @@ static void list_worker_from_head( __u64 *head){
 
 static void list_all()
 {
-  int fd;
+  int fd, flag=0;
   struct vip key = {}, next_key;
   __u64 head;
   char daddr_txt[INET_ADDRSTRLEN] = {0};
@@ -393,13 +393,18 @@ static void list_all()
     bpf_map_lookup_elem(fd, &key, &head);
     
     assert(inet_ntop(key.family, &key.daddr.v4, daddr_txt, sizeof(daddr_txt)));
-    printf("service: %s:%d(%d) " , daddr_txt, ntohs(key.dport), key.protocol);
+    printf("service(#%d): %s:%d(%d) " , (__u16)(head>>32), daddr_txt, ntohs(key.dport), key.protocol);
 
     if (DEBUG) printf(", head = %llu ", head);
 
     list_worker_from_head(&head);
+    flag=1;
   }
 
+  if (flag == 0){
+    printf("We have no service here.\n");
+  }
+  
   close(fd);
 }
 
@@ -452,7 +457,7 @@ int main(int argc, char **argv)
   //	unsigned char opt_flags[256] = {};
 	const char *optstr = "i:A:D:a:d:r:s:m:p:SLlvhut";
 	int min_port = 0, max_port = 0;
-	struct iptnl_info tnl = {};
+	struct iptnl_info tnl = {}, tnl_tmp = {};
 	struct vip vip_tmp, vip = {};
 	int opt, i, svcid = 0;
 	
@@ -602,98 +607,116 @@ int main(int argc, char **argv)
 	  vip.dport = htons(min_port++);
 	  if (action == ACTION_ADD_SVC) {
 
-	    // Check if the service already exists.
-	    // If not, assign svcid and create head(32+8 bit number).
-	    if (bpf_map_lookup_elem(fd_service, &vip, &head) == -1 ){
-	      for (i = 1; i < MAX_SVC_ENTRIES ; i++)
-		if (bpf_map_lookup_elem(fd_svcid, &i, &vip_tmp) == -1 ){
-		  svcid = i ;
-		  bpf_map_update_elem(fd_svcid, &i, &vip, BPF_NOEXIST);
-		  break ;
-		}
-	      if (svcid == 0) return EXIT_FAIL;
-
-	      strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
-	      head = conv(ip_txt, svcid);
-
-	      // Create service map entry.
-	      bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_NOEXIST);
-	    } else {
-	      //Service already exists.
+	    // 0. Check if the service already exists.
+	    if (bpf_map_lookup_elem(fd_service, &vip, &head) == 0 ){
+	      assert(inet_ntop(vip.family, &vip.daddr.v4, ip_txt, sizeof(ip_txt)));
+	      printf("The service \"%s:%d\" already exists!\n", ip_txt, ntohs(vip.dport));
 	      return EXIT_FAIL;
 	    }
 
+	    // 1. Assign svcid and create head(32+8 bit number).
+	    for (i = 1; i < MAX_SVC_ENTRIES ; i++)
+	      if (bpf_map_lookup_elem(fd_svcid, &i, &vip_tmp) == -1 ){
+		svcid = i ;
+		bpf_map_update_elem(fd_svcid, &i, &vip, BPF_NOEXIST);
+		break ;
+	      }
+	    if (svcid == 0) return EXIT_FAIL;
+
+	    strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
+	    head = conv(ip_txt, svcid);
+	      
+	    // 2. Add service to the service map.
+	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_NOEXIST);
+
+	      
 	  } else if (action == ACTION_ADD_REAL) {
 
-	    // Check if the service exists.
+	    // 0. Check if the service & worker exist.
 	    if (bpf_map_lookup_elem(fd_service, &vip, &head) == -1 ){
-	      // Non existent service
+	      assert(inet_ntop(vip.family, &vip.daddr.v4, ip_txt, sizeof(ip_txt)));
+	      printf("The service \"%s:%d\" does not exist!\n", ip_txt, ntohs(vip.dport));
 	      return EXIT_FAIL;
 	    }
 	    svcid = head>>32;
+
 	    if (bpf_map_lookup_elem(fd_svcid, &svcid, &vip_tmp) == -1 ){
-	      // Non service id ? Something wrong
+	      // No svcid in the fd_svcid map? Unlikey but just checkin.
 	      return EXIT_FAIL;
 	    }
 
+	    // 1. Check if the head is for "0.0.0.0" i.e. there's no worker yet.
+	    //    If so, generate new head from worker ip. 
 	    strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
-
 	    if (head == conv(ip_txt,svcid)) { 
 		assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
 		head = conv(ip_txt,svcid);
 	    }
 
-	    if (verbose) printf("head old = %llu\n", head);
-
-	    // Insert wkrtag into the linked-list.
-	    lnklst_add_to_map(fd_linklist, &tnl, &head);
-
-	    // Update service map entry with new head.
-	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
-
-	    // Create worker map entry.
+	    // 2. Check if the worker already exists for the service.
 	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
 	    daddrint = conv(ip_txt, svcid);
+	    if (bpf_map_lookup_elem(fd_worker, &daddrint, &tnl_tmp) == 0 ){
+	      printf("The \"%s\" already exists for service(#%d)!\n",ip_txt,svcid);
+	      return EXIT_FAIL;
+	    }
 
+	    if (verbose) printf("head old = %llu\n", head);
+	    
+	    // 3. Insert wkrtag into the linked-list.
+	    // 4. Add worker.
+	    // 5. Update service map entry with new head.
+	    lnklst_add_to_map(fd_linklist, &tnl, &head);
 	    bpf_map_update_elem(fd_worker, &daddrint, &tnl, BPF_ANY);
+	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
 
 	    if (verbose) printf("head new = %llu\n", head);
 	    
 	  } else if (action == ACTION_DEL_REAL) {
 
-	    // Check if the service already exists.
-	    // Determine svcid 
-	    bpf_map_lookup_elem(fd_service, &vip, &head);
+	    // 0. Check if the service & worker exist.
+	    if (bpf_map_lookup_elem(fd_service, &vip, &head) == -1 ){
+	      assert(inet_ntop(vip.family, &vip.daddr.v4, ip_txt, sizeof(ip_txt)));
+	      printf("The service \"%s:%d\" does not exist!\n", ip_txt, ntohs(vip.dport));
+	      return EXIT_FAIL;
+	    }
 	    svcid = head>>32;
-	    //	    bpf_map_lookup_elem(fd_svcid, &svcid, &vip_tmp);
 
-	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
-	    head = conv(ip_txt,svcid);
-
-	    // Insert wkrtag into the linked-list.
-	    lnklst_del_from_map(fd_linklist, &tnl, &head);
-
-	    // Update service map entry with new head.
-	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
-
-	    // Delete worker map entry.
 	    assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
 	    daddrint = conv(ip_txt, svcid);
+	    if (bpf_map_lookup_elem(fd_worker, &daddrint, &tnl_tmp) == -1 ){
+	      printf("The worker, \"%s\" does not exist for service(#%d)!\n",ip_txt,svcid);
+	      return EXIT_FAIL;
+	    }
 
+	    // 1. Delete wkrtag from the linked-list.
+	    //	    lnklst_del_from_map(fd_linklist, &tnl, &daddr);
+	    // 2. Delete worker.
+	    // 3. Update service map entry with new head.
+
+	    lnklst_del_from_map(fd_linklist, &tnl, &head);
 	    bpf_map_delete_elem(fd_worker, &daddrint);
+	    bpf_map_update_elem(fd_service, &vip.daddr.v4, &head, BPF_ANY);
 
 	  } else if (action == ACTION_DEL_SVC) {
 
-	    bpf_map_lookup_elem(fd_service, &vip, &head);
+	    // 0. Check if the service & worker exist.
+	    if (bpf_map_lookup_elem(fd_service, &vip, &head) == -1 ){
+	      assert(inet_ntop(vip.family, &vip.daddr.v4, ip_txt, sizeof(ip_txt)));
+	      printf("The service \"%s:%d\" does not exist!\n", ip_txt, ntohs(vip.dport));
+	      return EXIT_FAIL;
+	    }
 	    svcid = head>>32;
 
 	    strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
 
-	    if (head == conv(ip_txt,svcid)) { 
+	    if (head == conv(ip_txt,svcid)) { // If there is no worker then remove service
 	      bpf_map_delete_elem(fd_service, &vip);
 	      bpf_map_delete_elem(fd_svcid, &svcid);
 	    } else {
-	      return EXIT_FAIL;
+	      printf("\nWorkers still exist for service(#%d)! Delete them first.\n\n",svcid);
+	      do_list=1;
+	      //	      return EXIT_FAIL;
 	    }
 	  }
 	}
