@@ -1,0 +1,75 @@
+#!/bin/bash
+
+createsvc(){
+./xlb -i eth0 -r ;./xlb -i eth0
+./xlb_cmdline -i eth0 -A 10.1.4.1 -p 80
+./xlb_cmdline -i eth0 -a 10.1.4.1 -p 80 -s 10.0.0.27 -r 10.0.0.24 -m 52:54:00:11:00:18 
+./xlb_cmdline -i eth0 -a 10.1.4.1 -p 80 -s 10.0.0.27 -r 10.0.0.23 -m 52:54:00:11:00:17 
+./xlb_cmdline -i eth0 -a 10.1.4.1 -p 80 -s 10.0.0.27 -r 10.0.0.22 -m 52:54:00:11:00:16 
+
+./xlb_cmdline -i eth0 -A 10.1.4.2 -p 80
+./xlb_cmdline -i eth0 -a 10.1.4.2 -p 80 -s 10.0.0.27 -r 10.0.0.24 -m 52:54:00:11:00:18 
+./xlb_cmdline -i eth0 -a 10.1.4.2 -p 80 -s 10.0.0.27 -r 10.0.0.23 -m 52:54:00:11:00:17 
+
+}
+
+deletesvc(){
+./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.22
+./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.23
+./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.24
+./xlb_cmdline -i eth0 -D 10.1.4.1 -p 80
+
+./xlb_cmdline -i eth0 -d 10.1.4.2 -p 80 -r 10.0.0.23
+./xlb_cmdline -i eth0 -d 10.1.4.2 -p 80 -r 10.0.0.24
+./xlb_cmdline -i eth0 -D 10.1.4.2 -p 80 
+}
+
+listsvc(){
+./xlb_cmdline -i eth0 -L
+}
+
+waitkey(){
+echo
+#read -p "Type enter to continue ..." choice
+read -p "Type enter... " choice
+echo
+}
+
+createsvc
+
+waitkey
+
+listsvc
+
+waitkey
+
+deletesvc
+listsvc
+
+waitkey
+
+createsvc
+
+waitkey
+
+listsvc
+
+waitkey
+
+cat <<EOF
+./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.22
+./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.22
+./xlb_cmdline -i eth0 -D 10.1.4.1 -p 80
+EOF
+
+waitkey
+
+./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.22
+./xlb_cmdline -i eth0 -d 10.1.4.1 -p 80 -r 10.0.0.22
+./xlb_cmdline -i eth0 -D 10.1.4.1 -p 80
+
+waitkey
+
+./xlb_cmdline -i eth0 -L
+
+echo

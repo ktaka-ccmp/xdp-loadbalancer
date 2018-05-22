@@ -1,15 +1,3 @@
-/*
- * iproute.c		"ip route".
- *
- *		This program is free software; you can redistribute it and/or
- *		modify it under the terms of the GNU General Public License
- *		as published by the Free Software Foundation; either version
- *		2 of the License, or (at your option) any later version.
- *
- * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
- *
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -25,127 +13,165 @@
 #include <linux/icmpv6.h>
 #include <errno.h>
 
-#include "rt_names.h"
-#include "utils.h"
-#include "ip_common.h"
-
 #include <net/if_arp.h>
 #include <sys/ioctl.h>
 
-#ifndef RTAX_RTTVAR
-#define RTAX_RTTVAR RTAX_HOPS
-#endif
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
+#include <netinet/ether.h>
 
-enum list_action {
-	IPROUTE_LIST,
-	IPROUTE_FLUSH,
-	IPROUTE_SAVE,
-};
 
-struct rtnl_handle rth = { .fd = -1 };
-int preferred_family = AF_UNSPEC;
+#define IFLIST_REPLY_BUFFER 8192
+#define DEBUG 0
 
-static struct
+int xlb_parse_route(struct nlmsghdr *nlh, __u8 *src, __u8 *next, int *dev)
 {
-	unsigned int tb;
-	int cloned;
-	int flushed;
-	char *flushb;
-	int flushp;
-	int flushe;
-	int protocol, protocolmask;
-	int scope, scopemask;
-	__u64 typemask;
-	int tos, tosmask;
-	int iif, iifmask;
-	int oif, oifmask;
-	int mark, markmask;
-	int realm, realmmask;
-	__u32 metric, metricmask;
-	inet_prefix rprefsrc;
-	inet_prefix rvia;
-	inet_prefix rdst;
-	inet_prefix mdst;
-	inet_prefix rsrc;
-	inet_prefix msrc;
-} filter;
+    struct  rtmsg *route_entry;
+    struct  rtattr *route_attribute; 
+    int     route_attribute_len = 0;
+    unsigned char    route_netmask = 0;
+    unsigned char    route_protocol = 0;
+    char    dst_ip[32];
+    char    gw_ip[32];
+    char    src_ip[32];
+    int i, via = 0;
+    __u8 *addr;
+    
+    route_entry = (struct rtmsg *) NLMSG_DATA(nlh);
 
-int xlb_parse_route(struct nlmsghdr *n, __u8 *src, __u8 *next, int *dev)
-{
-	struct rtmsg *r = NLMSG_DATA(n);
-	int len = n->nlmsg_len;
-	struct rtattr *tb[RTA_MAX+1];
-	int host_len;
-	__u8 *addr; int i;
+    if (route_entry->rtm_table != RT_TABLE_MAIN)
+      return 1;
 
-	len -= NLMSG_LENGTH(sizeof(*r));
-	host_len = af_bit_len(r->rtm_family);
-	parse_rtattr(tb, RTA_MAX, RTM_RTA(r), len);
+    route_netmask = route_entry->rtm_dst_len;
+    route_protocol = route_entry->rtm_protocol;
+    route_attribute = (struct rtattr *) RTM_RTA(route_entry);
+    route_attribute_len = RTM_PAYLOAD(nlh);
 
-			
-	if (tb[RTA_GATEWAY] && filter.rvia.bitlen != host_len) {
-	  addr = RTA_DATA(tb[RTA_GATEWAY]);
-	  for(i=0 ; i < RTA_PAYLOAD(tb[RTA_GATEWAY]) ; i++ ){ 
-	    *next = *addr; addr++ ; next++;
+    for ( ; RTA_OK(route_attribute, route_attribute_len);		\
+	  route_attribute = RTA_NEXT(route_attribute, route_attribute_len))
+      {
+
+        if (route_attribute->rta_type == RTA_DST)
+	  {
+            if(DEBUG) inet_ntop(AF_INET, RTA_DATA(route_attribute), dst_ip, sizeof(dst_ip));
+	    if (via == 0)
+	      memcpy(next, RTA_DATA(route_attribute), 4);
 	  }
-	} else if (tb[RTA_DST]) {
-	  addr = RTA_DATA(tb[RTA_DST]);
-	  for(i=0 ; i < RTA_PAYLOAD(tb[RTA_DST]) ; i++ ){ 
-	    *next = *addr; addr++ ; next++;
+
+        if (route_attribute->rta_type == RTA_GATEWAY)
+	  {
+	    if(DEBUG) inet_ntop(AF_INET, RTA_DATA(route_attribute), gw_ip, sizeof(gw_ip));
+	    memcpy(next, RTA_DATA(route_attribute), 4);
+	    via = 1;
 	  }
-	}
+
+        if (route_attribute->rta_type == RTA_PREFSRC)
+	  {
+	    if(DEBUG) inet_ntop(AF_INET, RTA_DATA(route_attribute), src_ip, sizeof(src_ip));
+	    memcpy(src, RTA_DATA(route_attribute), 4);
+	  }
 	
-	if (tb[RTA_PREFSRC] && filter.rprefsrc.bitlen != host_len) {
-	  addr = RTA_DATA(tb[RTA_PREFSRC]);
-	  for(i=0 ; i < RTA_PAYLOAD(tb[RTA_PREFSRC]) ; i++ ){ 
-	    *src = *addr; addr++ ; src++;
+	if (route_attribute->rta_type == RTA_OIF)
+	  {
+	    memcpy(dev, RTA_DATA(route_attribute), sizeof(int));
 	  }
-	}
+      }
 
-	if (tb[RTA_OIF] && filter.oifmask != -1)
-	  *dev = rta_getattr_u32(tb[RTA_OIF]);
-	  
-	return 0;
+    if(DEBUG) 
+      printf("route to destination --> %s/%d proto %d and gateway %s\n src=%s\n", \
+	   dst_ip, route_netmask, route_protocol, gw_ip,src_ip);
+
+    return 0;
+}
+
+#define NLMSG_TAIL(nmsg) \
+        ((struct rtattr *) (((void *) (nmsg)) + NLMSG_ALIGN((nmsg)->nlmsg_len)))
+
+int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data,
+              int alen)
+{
+        int len = RTA_LENGTH(alen);
+        struct rtattr *rta;
+
+        if (NLMSG_ALIGN(n->nlmsg_len) + RTA_ALIGN(len) > maxlen) {
+                fprintf(stderr,
+                        "addattr_l ERROR: message exceeded bound of %d\n",
+                        maxlen);
+                return -1;
+        }
+        rta = NLMSG_TAIL(n);
+        rta->rta_type = type;
+        rta->rta_len = len;
+        if (alen)
+                memcpy(RTA_DATA(rta), data, alen);
+        n->nlmsg_len = NLMSG_ALIGN(n->nlmsg_len) + RTA_ALIGN(len);
+        return 0;
 }
 
 static int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
 {
-	struct {
-		struct nlmsghdr	n;
-		struct rtmsg		r;
-		char			buf[1024];
-	} req = {
-		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg)),
-		.n.nlmsg_flags = NLM_F_REQUEST,
-		.n.nlmsg_type = RTM_GETROUTE,
-		.r.rtm_family = preferred_family,
-	};
-	struct nlmsghdr *answer;
+  struct msghdr rtnl_msg;
+  struct iovec io;
+  int fd;
+  
+  __u8 cp[]={10,1,0,22};
 
-	inet_prefix addr;
+  struct {
+    struct nlmsghdr	n;
+    struct rtmsg		r;
+    char			buf[1024];
+  } req;
 
-	get_prefix(&addr, dst_ip, req.r.rtm_family);
-	if (addr.bytelen)
-	  addattr_l(&req.n, sizeof(req),
-		    RTA_DST, &addr.data, addr.bytelen);
+  memset(&rtnl_msg, 0, sizeof(rtnl_msg));
+  memset(&req, 0, sizeof(req));
 
-	if (req.r.rtm_family == AF_UNSPEC)
-		req.r.rtm_family = AF_INET;
+  req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
+  req.n.nlmsg_flags = NLM_F_REQUEST;
+  req.n.nlmsg_type = RTM_GETROUTE;
+  req.r.rtm_family = AF_INET;
+
+	//	inet_prefix addr;
+
+	//	get_prefix(&addr, dst_ip, req.r.rtm_family);
+
+  addattr_l(&req.n, sizeof(req), RTA_DST, cp, 4);
 	
-	if (rtnl_open(&rth, 0) < 0) {
-	  fprintf(stderr, "Cannot open rtnetlink\n");
-	  return EXIT_FAILURE;
-	}
+  io.iov_base = &req;
+  io.iov_len = req.n.nlmsg_len;
+  rtnl_msg.msg_iov = &io;
+  rtnl_msg.msg_iovlen = 1;
 
-	if (rtnl_talk(&rth, &req.n, &answer) < 0)
-	  return -2;
+  fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+  sendmsg(fd, (struct msghdr *) &rtnl_msg, 0);
 
-	rtnl_close(&rth);
+  /* parse reply */
 
-	xlb_parse_route(answer, src, next, dev);
-	  
-	free(answer);
-	return 0;
+  {
+    int len;
+    struct nlmsghdr *answer;
+    struct msghdr rtnl_reply;
+    struct iovec io_reply;
+    char reply[IFLIST_REPLY_BUFFER];
+
+    
+    memset(&io_reply, 0, sizeof(io_reply));
+    memset(&rtnl_reply, 0, sizeof(rtnl_reply));
+      
+    io.iov_base = reply;
+    io.iov_len = IFLIST_REPLY_BUFFER;
+    rtnl_reply.msg_iov = &io;
+    rtnl_reply.msg_iovlen = 1;
+    
+    len = recvmsg(fd, &rtnl_reply, 0);
+    answer = (struct nlmsghdr *) reply;
+    //    rtnl_print_route(msg_ptr);
+
+    xlb_parse_route(answer, src, next, dev);
+  }
+  
+  close(fd);
+
+  return 0;
 }
 
 static int xlb_get_mac(__u8 *host, __u8 *mac, int *dev){
