@@ -51,7 +51,7 @@ struct bpf_map_def SEC("maps") lbcache = {
 
 struct bpf_map_def SEC("maps") svcid = {
   .type = BPF_MAP_TYPE_HASH,
-  .key_size = sizeof(__u8),
+  .key_size = sizeof(__u16),
   .value_size = sizeof(struct vip),
   .max_entries = 256,
 };
