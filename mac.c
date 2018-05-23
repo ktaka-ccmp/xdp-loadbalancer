@@ -19,8 +19,6 @@ int xlb_get_mac(__u8 *host, __u8 *mac, int *dev){
     exit(-1);
   }
 
-  static char ifname[IF_NAMESIZE];
-  
   if_indextoname(*dev, req.arp_dev);
   if (DEBUG) printf("ifname= %s\n", req.arp_dev);
   

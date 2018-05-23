@@ -10,8 +10,8 @@ int xlb_parse_route(struct nlmsghdr *nlh, __u8 *src, __u8 *next, int *dev)
     char    dst_ip[32];
     char    gw_ip[32];
     char    src_ip[32];
-    int i, via = 0;
-    __u8 *addr;
+    int  via = 0;
+    //    __u8 *addr;
     
     route_entry = (struct rtmsg *) NLMSG_DATA(nlh);
 
@@ -118,7 +118,7 @@ int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
   /* parse reply */
 
   {
-    int len;
+    //    int len;
     struct nlmsghdr *answer;
     struct msghdr rtnl_reply;
     struct iovec io_reply;
@@ -133,7 +133,7 @@ int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
     rtnl_reply.msg_iov = &io;
     rtnl_reply.msg_iovlen = 1;
     
-    len = recvmsg(fd, &rtnl_reply, 0);
+    recvmsg(fd, &rtnl_reply, 0);
     answer = (struct nlmsghdr *) reply;
     //    rtnl_print_route(msg_ptr);
 

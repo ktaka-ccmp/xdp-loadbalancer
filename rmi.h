@@ -10,7 +10,7 @@
 #include <netinet/ip.h>
 #include <arpa/inet.h>
 #include <linux/in_route.h>
-#include <linux/icmpv6.h>
+//#include <linux/icmpv6.h>
 #include <errno.h>
 
 #include <net/if_arp.h>
