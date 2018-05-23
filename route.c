@@ -1,28 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <string.h>
-#include <time.h>
-#include <sys/time.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <arpa/inet.h>
-#include <linux/in_route.h>
-#include <linux/icmpv6.h>
-#include <errno.h>
-
-#include <net/if_arp.h>
-#include <sys/ioctl.h>
-
-#include <linux/netlink.h>
-#include <linux/rtnetlink.h>
-#include <netinet/ether.h>
-
-
-#define IFLIST_REPLY_BUFFER 8192
-#define DEBUG 0
+#include "rmi.h"
 
 int xlb_parse_route(struct nlmsghdr *nlh, __u8 *src, __u8 *next, int *dev)
 {
@@ -84,9 +60,6 @@ int xlb_parse_route(struct nlmsghdr *nlh, __u8 *src, __u8 *next, int *dev)
     return 0;
 }
 
-#define NLMSG_TAIL(nmsg) \
-        ((struct rtattr *) (((void *) (nmsg)) + NLMSG_ALIGN((nmsg)->nlmsg_len)))
-
 int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data,
               int alen)
 {
@@ -108,7 +81,8 @@ int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data,
         return 0;
 }
 
-static int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
+//static int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
+int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
 {
   struct msghdr rtnl_msg;
   struct iovec io;
@@ -171,80 +145,3 @@ static int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
   return 0;
 }
 
-static int xlb_get_mac(__u8 *host, __u8 *mac, int *dev){
-  int s;
-
-  struct arpreq req;
-  struct sockaddr_in *sin;
-  static char buf[256];
-
-  //  char *host = argv[1];
-
-  bzero((caddr_t)&req, sizeof(req));
-
-  sin = (struct sockaddr_in *)&req.arp_pa;
-  sin->sin_family = AF_INET; /* Address Family: Internet */
-  sin->sin_addr.s_addr = inet_addr(inet_ntop(AF_INET, host, buf, 256));
-  //  sin->sin_addr.s_addr = host;
-
-  if((s = socket(AF_INET, SOCK_DGRAM, 0)) < 0){
-    perror("socket() failed.");
-    exit(-1);
-  } /* Socket is opened.*/
-
-  strcpy(req.arp_dev, "eth0");
-
-  
-  if(ioctl(s, SIOCGARP, (caddr_t)&req) <0){
-    if(errno == ENXIO){
-
-      icmp_send_1pkt(&sin->sin_addr.s_addr);
-      usleep(100000);
-      
-      if(ioctl(s, SIOCGARP, (caddr_t)&req) <0){
-	if(errno == ENXIO){
-	  printf("%s - no entry.\n", inet_ntop(AF_INET, host, buf, 256));
-	  printf("%lu - no entry.\n", *host);
-	  exit(-1);
-	} else {
-	  perror("SIOCGARP");
-	  exit(-1);
-	}
-      }
-
-    } else {
-      perror("SIOCGARP");
-      exit(-1);
-    }
-  }
-
-  memcpy(mac, req.arp_ha.sa_data, 6);
-
-  
-  return(0);
-}
-
-
-int main(int argc, char *argv[])
-{
-  char ipaddr[16];
-  strcpy(ipaddr, argv[1]);
-  //  strcpy(ipaddr, "10.0.0.22");
-
-  __u8 src[4], nexthop[4], mac[6];
-  int dev=0;
-  
-  xlb_iproute_get(ipaddr,src,nexthop, &dev);
-
-  xlb_get_mac(nexthop, mac , &dev);
-
-  static char buf[256];
-  printf("src: %s \n", inet_ntop(AF_INET, src, buf, 256));
-  printf("nexthop: %s \n", inet_ntop(AF_INET, nexthop, buf, 256));
-  printf("dev: %d \n", dev);
-
-  char mac_txt[6] = {0};
-  ether_ntoa_r((struct ether_addr *)mac, mac_txt);
-  printf("mac: %s\n", mac_txt );
-
-}
