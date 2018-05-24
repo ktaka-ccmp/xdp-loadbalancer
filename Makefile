@@ -4,6 +4,11 @@ TARGETS := xlb
 CMDLINE_TOOLS := xlb_cmdline
 COMMON_H      =  ${CMDLINE_TOOLS:_cmdline=_common.h}
 
+RMI_SOURCES := route.c
+RMI_SOURCES += icmp.c
+RMI_SOURCES += mac.c
+RMI_OBJECTS = ${RMI_SOURCES:.c=.o}
+
 # Generate file name-scheme based on TARGETS
 KERN_SOURCES = ${TARGETS:=_kern.c}
 USER_SOURCES = ${TARGETS:=_user.c}
@@ -82,6 +87,7 @@ clean:
 	rm -f $(TARGETS)
 	rm -f $(KERN_OBJECTS)
 	rm -f $(USER_OBJECTS)
+	rm -f $(RMI_OBJECTS)
 	rm -f $(OBJECT_BPF_LIBBPF) libbpf.a
 
 dependencies: verify_llvm_target_bpf linux-src-devel-headers
@@ -164,5 +170,5 @@ $(KERN_OBJECTS): %.o: %.c bpf_helpers.h
 $(TARGETS): %: %_user.c $(OBJECTS) Makefile
 	$(CC) $(CFLAGS) $(OBJECTS) $(LDFLAGS) -o $@ $<
 
-$(CMDLINE_TOOLS): %: %.c $(OBJECTS) Makefile $(COMMON_H)
-	$(CC) -g $(CFLAGS) $(OBJECTS) $(LDFLAGS) -o $@ $<
+$(CMDLINE_TOOLS): %: %.c $(OBJECTS) Makefile $(COMMON_H) $(RMI_OBJECTS) rmi.h
+	$(CC) -g $(CFLAGS) $(OBJECTS) $(RMI_OBJECTS) $(LDFLAGS) -o $@ $<

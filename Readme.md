@@ -23,6 +23,20 @@ The line, "prog/xdp id 94 tag e09d47c63a72ab36 jited" indicate that the xdp byte
 
 ## Setup loadbalancer
 
+Basic usage of the xlb_cmdline
+```
+Usage: ./xlb_cmdline [...]
+    -i Interface name(eg. eth0)
+    -A ServiceIP(a.k.a. VIP)
+    -t (for TCP, optional, default)
+    -t (for UDP, optional)
+    -r WorkerIP
+    -v verbose
+    -L list lb table
+    -l list lbcache
+    -h Display this help
+```
+
 Create service
 ```
 ./xlb_cmdline -i eth0 -A 10.1.4.1 -p 80
@@ -30,9 +44,9 @@ Create service
 
 Add real servers
 ```
-./xlb_cmdline -i eth0 -a 10.1.4.1 -p 80 -s 10.0.0.27 -r 10.0.0.24 -m 52:54:00:11:00:18 
-./xlb_cmdline -i eth0 -a 10.1.4.1 -p 80 -s 10.0.0.27 -r 10.0.0.23 -m 52:54:00:11:00:17 
-./xlb_cmdline -i eth0 -a 10.1.4.1 -p 80 -s 10.0.0.27 -r 10.0.0.22 -m 52:54:00:11:00:16 
+./xlb_cmdline -i eth0 -a 10.1.4.1 -p 80 -r 10.0.0.24
+./xlb_cmdline -i eth0 -a 10.1.4.1 -p 80 -r 10.0.0.23
+./xlb_cmdline -i eth0 -a 10.1.4.1 -p 80 -r 10.0.0.22
 ```
 
 Show registered services.
