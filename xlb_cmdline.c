@@ -24,6 +24,7 @@
 #include "libbpf.h"
 #include "bpf_util.h"
 #include "xlb_common.h"
+#include "rmi.h"
 
 #define STATS_INTERVAL_S 2U
 
@@ -44,9 +45,7 @@ static void usage(const char *cmd)
 	printf("    -i Interface name\n");
 	printf("    -A <vip-service-address> IPv4 or IPv6\n");
 	printf("    -t or -u <vip-service-port> A port range (e.g. 433-444) is also allowed\n");
-	printf("    -s <source-ip> Used in the IPTunnel header\n");
 	printf("    -d <dest-ip> Used in the IPTunnel header\n");
-	printf("    -m <dest-MAC> Used in sending the IP Tunneled pkt\n");
 	printf("    -S use skb-mode\n");
 	printf("    -v verbose\n");
 	printf("    -L list lb table\n");
@@ -455,7 +454,7 @@ static void list_lbcache()
 int main(int argc, char **argv)
 {
   //	unsigned char opt_flags[256] = {};
-	const char *optstr = "i:A:D:a:d:r:s:m:p:SLlvhut";
+	const char *optstr = "i:A:D:a:d:r:p:SLlvhut";
 	int min_port = 0, max_port = 0;
 	struct iptnl_info tnl = {}, tnl_tmp = {};
 	struct vip vip_tmp, vip = {};
@@ -528,9 +527,6 @@ int main(int argc, char **argv)
 		    return 1;
         	  break;
 		case 'L':
-		  //		  vip.family = parse_ipstr(optarg, vip.daddr.v6);
-		  //		  if (vip.family == AF_UNSPEC)
-		  //		    return 1;
 		  do_list = true;
 		  break;
 		case 'l':
@@ -546,12 +542,8 @@ int main(int argc, char **argv)
 		  if (parse_ports(optarg, &min_port, &max_port))
 		    return 1;
 		  break;
-		case 's':
 		case 'r':
-			if (opt == 's')
-				v6 = tnl.saddr.v6;
-			else
-				v6 = tnl.daddr.v6;
+		        v6 = tnl.daddr.v6;
 
 			family = parse_ipstr(optarg, v6);
 			if (family == AF_UNSPEC)
@@ -561,14 +553,6 @@ int main(int argc, char **argv)
 			} else if (tnl.family != family) {
 				fprintf(stderr,
 					"The IP version of the src and dst addresses used in the IP encapsulation does not match\n");
-				return 1;
-			}
-			break;
-		case 'm':
-			if (!ether_aton_r(optarg,
-					  (struct ether_addr *)tnl.dmac)) {
-				fprintf(stderr, "Invalid mac address:%s\n",
-					optarg);
 				return 1;
 			}
 			break;
@@ -597,6 +581,24 @@ int main(int argc, char **argv)
 	  printf("ERR: required option -i missing");
 	  usage(argv[0]);
 	  return EXIT_FAIL_OPTION;
+	}
+
+	if (action == ACTION_ADD_REAL) {
+
+	  in_addr_t nh_ip;
+	  int dev=0;
+
+	  xlb_iproute_get(&tnl.daddr.v4, &tnl.saddr.v4, &nh_ip, &dev);
+	  xlb_get_mac(&nh_ip, tnl.dmac , &dev);
+
+	  if (DEBUG){
+	    char buf[256];
+	    char mac_txt[6] = {0};
+	    printf("src: %s \n", inet_ntop(AF_INET, &tnl.saddr.v4, buf, 256));
+
+	    ether_ntoa_r((struct ether_addr *)tnl.dmac, mac_txt);
+	    printf("mac: %s\n", mac_txt );
+	  }
 	}
 
 	fd_service = open_bpf_map(file_service);

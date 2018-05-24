@@ -43,7 +43,9 @@ enum action {
 static int verbose = 0;
 
 //#define DEBUG true 
+#ifndef DEBUG
 #define DEBUG false 
+#endif
 
 // static const char *file_rxcnt = "/sys/fs/bpf/rxcnt";
 static const char *file_service   = "/sys/fs/bpf/service";
@@ -72,7 +74,8 @@ struct iptnl_info {
 		__u32 v4;
 	} daddr;
 	__u16 family;
-	__u8 dmac[6];
+  //	__u8 dmac[6];
+	char dmac[6];
 };
 
 struct sip {
