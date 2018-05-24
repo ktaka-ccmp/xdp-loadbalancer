@@ -38,15 +38,15 @@ static __u32 xdp_flags = 0;
 
 static void usage(const char *cmd)
 {
-	printf("Start a XDP prog which encapsulates incoming packets\n"
-	       "in an IPv4/v6 header and XDP_TX it out.  The dst <VIP:PORT>\n"
-	       "is used to select packets to encapsulate\n\n");
+	printf("xlb_cmdline: Xdp Load Balancer command line utility.\n"
+	       "The xlb encapsulate incomming packet toward <VIP:PORT> in an IPv4 header and XDP_TX it out.\n"
+	       "The workers are selected by a round robin manner.\n\n");
 	printf("Usage: %s [...]\n", cmd);
-	printf("    -i Interface name\n");
-	printf("    -A <vip-service-address> IPv4 or IPv6\n");
-	printf("    -t or -u <vip-service-port> A port range (e.g. 433-444) is also allowed\n");
-	printf("    -d <dest-ip> Used in the IPTunnel header\n");
-	printf("    -S use skb-mode\n");
+	printf("    -i Interface name(eg. eth0)\n");
+	printf("    -A ServiceIP(a.k.a. VIP)\n");
+	printf("    -t (for TCP, optional, default)\n");
+	printf("    -t (for UDP, optional)\n");
+	printf("    -r WorkerIP\n");
 	printf("    -v verbose\n");
 	printf("    -L list lb table\n");
 	printf("    -l list lbcache\n");
