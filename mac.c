@@ -1,6 +1,6 @@
 #include "rmi.h"
 
-int xlb_get_mac(__u8 *host, __u8 *mac, int *dev){
+int xlb_get_mac(in_addr_t *host, char *mac, int *dev){
 
   int s;
 
@@ -12,7 +12,7 @@ int xlb_get_mac(__u8 *host, __u8 *mac, int *dev){
 
   sin = (struct sockaddr_in *)&req.arp_pa;
   sin->sin_family = AF_INET; 
-  sin->sin_addr.s_addr = inet_addr(inet_ntop(AF_INET, host, buf, 256));
+  sin->sin_addr.s_addr = *host;
 
   if((s = socket(AF_INET, SOCK_DGRAM, 0)) < 0){
     perror("socket() failed.");

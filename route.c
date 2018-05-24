@@ -1,17 +1,13 @@
 #include "rmi.h"
 
-int xlb_parse_route(struct nlmsghdr *nlh, __u8 *src, __u8 *next, int *dev)
+int xlb_parse_route(struct nlmsghdr *nlh, in_addr_t *src_ip, in_addr_t *nh_ip, int *dev)
 {
     struct  rtmsg *route_entry;
     struct  rtattr *route_attribute; 
     int     route_attribute_len = 0;
     unsigned char    route_netmask = 0;
     unsigned char    route_protocol = 0;
-    char    dst_ip[32];
-    char    gw_ip[32];
-    char    src_ip[32];
     int  via = 0;
-    //    __u8 *addr;
     
     route_entry = (struct rtmsg *) NLMSG_DATA(nlh);
 
@@ -28,34 +24,21 @@ int xlb_parse_route(struct nlmsghdr *nlh, __u8 *src, __u8 *next, int *dev)
       {
 
         if (route_attribute->rta_type == RTA_DST)
-	  {
-            if(DEBUG) inet_ntop(AF_INET, RTA_DATA(route_attribute), dst_ip, sizeof(dst_ip));
 	    if (via == 0)
-	      memcpy(next, RTA_DATA(route_attribute), 4);
-	  }
+	      memcpy(nh_ip, RTA_DATA(route_attribute), 4);
 
         if (route_attribute->rta_type == RTA_GATEWAY)
 	  {
-	    if(DEBUG) inet_ntop(AF_INET, RTA_DATA(route_attribute), gw_ip, sizeof(gw_ip));
-	    memcpy(next, RTA_DATA(route_attribute), 4);
+	    memcpy(nh_ip, RTA_DATA(route_attribute), 4);
 	    via = 1;
 	  }
 
         if (route_attribute->rta_type == RTA_PREFSRC)
-	  {
-	    if(DEBUG) inet_ntop(AF_INET, RTA_DATA(route_attribute), src_ip, sizeof(src_ip));
-	    memcpy(src, RTA_DATA(route_attribute), 4);
-	  }
+	    memcpy(src_ip, RTA_DATA(route_attribute), 4);
 	
 	if (route_attribute->rta_type == RTA_OIF)
-	  {
 	    memcpy(dev, RTA_DATA(route_attribute), sizeof(int));
-	  }
       }
-
-    if(DEBUG) 
-      printf("route to destination --> %s/%d proto %d and gateway %s\n src=%s\n", \
-	   dst_ip, route_netmask, route_protocol, gw_ip,src_ip);
 
     return 0;
 }
@@ -81,13 +64,11 @@ int addattr_l(struct nlmsghdr *n, int maxlen, int type, const void *data,
         return 0;
 }
 
-//static int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
-int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
+int xlb_iproute_get(in_addr_t *dst_ip, in_addr_t *src_ip , in_addr_t *nh_ip, int *dev)
 {
   struct msghdr rtnl_msg;
   struct iovec io;
   int fd;
-  __u32 addr;
     
   struct {
     struct nlmsghdr	n;
@@ -103,9 +84,8 @@ int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
   req.n.nlmsg_type = RTM_GETROUTE;
   req.r.rtm_family = AF_INET;
 
-  inet_pton(AF_INET, dst_ip , &addr); 
 
-  addattr_l(&req.n, sizeof(req), RTA_DST, &addr, 4);
+  addattr_l(&req.n, sizeof(req), RTA_DST, dst_ip, 4);
 	
   io.iov_base = &req;
   io.iov_len = req.n.nlmsg_len;
@@ -118,7 +98,6 @@ int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
   /* parse reply */
 
   {
-    //    int len;
     struct nlmsghdr *answer;
     struct msghdr rtnl_reply;
     struct iovec io_reply;
@@ -135,9 +114,8 @@ int xlb_iproute_get(char *dst_ip, __u8 *src , __u8 *next, int *dev)
     
     recvmsg(fd, &rtnl_reply, 0);
     answer = (struct nlmsghdr *) reply;
-    //    rtnl_print_route(msg_ptr);
 
-    xlb_parse_route(answer, src, next, dev);
+    xlb_parse_route(answer, src_ip, nh_ip, dev);
   }
   
   close(fd);

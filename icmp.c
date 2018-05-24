@@ -41,8 +41,6 @@ void ping(struct sockaddr_in *addr)
 	if ( fcntl(sd, F_SETFL, O_NONBLOCK) != 0 )
 		perror("Request nonblocking I/O");
 
-	//	int len=sizeof(*addr);
-
 	printf("Msg #%d\n", cnt);
 	bzero(&pckt, sizeof(pckt));
 	pckt.hdr.type = ICMP_ECHO;
