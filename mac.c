@@ -46,7 +46,7 @@ int xlb_get_mac(in_addr_t *host, char *mac, int *dev){
   }
       
   if(!(req.arp_flags & ATF_COM)){
-    printf("incomplete\n");
+    printf("Could not get workers Mac address from arp cache.\n");
     exit(-1);
   }
 
