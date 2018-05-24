@@ -29,7 +29,7 @@ Usage: ./xlb_cmdline [...]
     -i Interface name(eg. eth0)
     -A ServiceIP(a.k.a. VIP)
     -t (for TCP, optional, default)
-    -t (for UDP, optional)
+    -u (for UDP, optional)
     -r WorkerIP
     -v verbose
     -L list lb table

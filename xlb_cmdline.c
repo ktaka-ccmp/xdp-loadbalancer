@@ -45,7 +45,7 @@ static void usage(const char *cmd)
 	printf("    -i Interface name(eg. eth0)\n");
 	printf("    -A ServiceIP(a.k.a. VIP)\n");
 	printf("    -t (for TCP, optional, default)\n");
-	printf("    -t (for UDP, optional)\n");
+	printf("    -u (for UDP, optional)\n");
 	printf("    -r WorkerIP\n");
 	printf("    -v verbose\n");
 	printf("    -L list lb table\n");
