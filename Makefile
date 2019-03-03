@@ -55,9 +55,8 @@ CC = gcc
 NOSTDINC_FLAGS := -nostdinc -isystem $(shell $(CC) -print-file-name=include)
 
 # Copy of uapi/linux/bpf.h stored here:
-LINUXINCLUDE := -I./tools/include/
 
-LINUXINCLUDE += -I$(KERNEL)/arch/x86/include
+LINUXINCLUDE := -I$(KERNEL)/arch/x86/include
 LINUXINCLUDE += -I$(KERNEL)/arch/x86/include/generated/uapi
 LINUXINCLUDE += -I$(KERNEL)/arch/x86/include/generated
 LINUXINCLUDE += -I$(KERNEL)/include
@@ -66,7 +65,11 @@ LINUXINCLUDE += -I$(KERNEL)/include/uapi
 LINUXINCLUDE += -I$(KERNEL)/include/generated/uapi
 LINUXINCLUDE += -include $(KERNEL)/include/linux/kconfig.h
 LINUXINCLUDE += -I$(KERNEL)/tools/lib
-EXTRA_CFLAGS=-Werror
+
+#LINUXINCLUDE += -I./tools/include/
+
+#EXTRA_CFLAGS=-Werror
+EXTRA_CFLAGS= -D__BPF_TRACING__
 
 all: dependencies $(TARGETS) $(KERN_OBJECTS) $(CMDLINE_TOOLS)
 
