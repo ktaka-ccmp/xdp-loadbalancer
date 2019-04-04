@@ -8,12 +8,24 @@
 
 char* conf_yaml;
 
+struct _rs {
+  char *ipv4;
+};
+
+struct _vs {
+  int num_rs;
+  char *ipv4;
+  char *port;
+  struct _rs rs[256];
+};
+
 enum state_value {
     EXPECT_NONE,
     EXPECT_MAP,
     EXPECT_IPV4,
     EXPECT_PORT,
 };
+
 
 enum vip_or_rip {
     NONE,
@@ -39,6 +51,10 @@ int parse_yaml()
   int nest_level = 0 ;
   struct parser_state state = {.state=EXPECT_NONE};
 
+  struct _vs *vs = malloc(sizeof(struct _vs)*256); 
+  int j,i=0;
+
+  
   fh = fopen(conf_yaml, "rb");
   if(fh == NULL)
     printf("Failed to open \"%s\"\n", conf_yaml);
@@ -65,7 +81,10 @@ int parse_yaml()
       case YAML_MAPPING_END_EVENT:
 	nest_level--;
 	if ( state.rip_nest_level == nest_level) {
-	  printf("(VIP,PORT,RIP) = (%s,%s,%s)\n", state.vip, state.port, state.rip);
+	  //	  printf("(VIP,PORT,RIP) = (%s,%s,%s)\n", state.vip, state.port, state.rip);
+	  vs[i].rs[j].ipv4 = strdup(state.rip);
+	  j++;
+	  vs[i].num_rs=j;
 	}
 	break;
       case YAML_SCALAR_EVENT:
@@ -73,10 +92,14 @@ int parse_yaml()
 	if (strcmp(event.data.scalar.value, "virtual_server") == 0) {
 	  state.state = EXPECT_MAP;
 	  state.vor = VIP;
+	  i++;vs[i].num_rs=0;
 	  state.vip_nest_level = nest_level;
 	} else if (strcmp((char*)event.data.scalar.value, "real_servers") == 0 ||
 		   strcmp((char*)event.data.scalar.value, "real_servers") == 0) {
-	  printf("(VIP,PORT) = (%s,%s)\n", state.vip, state.port);
+	  //	  printf("(VIP,PORT) = (%s,%s)\n", state.vip, state.port);
+	  vs[i].ipv4 = strdup(state.vip);
+	  vs[i].port = strdup(state.port);
+	  j=0;
 	  state.state = EXPECT_MAP;
 	  state.vor = RIP;
 	  state.rip_nest_level = nest_level;
@@ -116,12 +139,20 @@ int parse_yaml()
   yaml_event_delete(&event);
 
   yaml_parser_delete(&parser);
+
+  for (int k=1 ; k < i+1;k++){
+    printf("%s:%s\n",vs[k].ipv4,vs[k].port);
+    for (int l=0 ; l < vs[k].num_rs ;l++){
+      printf("  %s\n",vs[k].rs[l].ipv4);
+    }
+  }
   fclose(fh);
+  free(vs);
   return 0;
 }
 
 void sig_reader(int signal){
-  printf("recved signal = %d\n",signal);
+  printf("\nrecved signal = %d\n",signal);
   parse_yaml();
 }
 
