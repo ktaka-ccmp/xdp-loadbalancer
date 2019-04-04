@@ -29,24 +29,13 @@ struct parser_state {
   char *vip;
   char *rip;
   char *port;
-
-  char *ifname;
-
-  
-  char *key;
-  char *value;
-  //    struct _vs vs;
-  char *event_name;
-  char *state_name;
-  char *scalar ;
 };
 
-//int main(int argc, const char *argv[])
 int parse_yaml()
 {
   FILE *fh;
   yaml_parser_t parser;
-  yaml_event_t  event;   /* New variable */
+  yaml_event_t  event;
   int nest_level = 0 ;
   struct parser_state state = {.state=EXPECT_NONE};
 
@@ -55,103 +44,47 @@ int parse_yaml()
     printf("Failed to open \"%s\"\n", conf_yaml);
   assert(fh);
   
-  /* Initialize parser */
   if(!yaml_parser_initialize(&parser))
     fputs("Failed to initialize parser!\n", stderr);
   if(fh == NULL)
     fputs("Failed to open file!\n", stderr);
 
-  /* Set input file */
   yaml_parser_set_input_file(&parser, fh);
 
-  /* START new code */
   do {
     if (!yaml_parser_parse(&parser, &event)) {
       printf("Parser error %d\n", parser.error);
       exit(EXIT_FAILURE);
     }
 
-    //      printf("indent=%d\n", parser.indent);
     switch(event.type)
       {
-      case YAML_NO_EVENT:
-	//	puts("No event!");
-	break;
-      case YAML_STREAM_START_EVENT:
-	//	printf("%*s",  nest_level, "");
-	//	puts("STREAM START");
-	break;
-      case YAML_STREAM_END_EVENT:
-	//	printf("%*s",  nest_level, "");
-	//	puts("STREAM END");
-	break;
-      case YAML_DOCUMENT_START_EVENT:
-	//	printf("%*s",  nest_level, "");
-	//	puts("<b>Start Document</b>");
-	break;
-      case YAML_DOCUMENT_END_EVENT:
-	//	printf("%*s",  nest_level, "");
-	//	puts("<b>End Document</b>");
-	break;
-      case YAML_SEQUENCE_START_EVENT:
-	//	printf("%*s",  nest_level, "");
-	//	puts("<b>Start Sequence</b>");
-	break;
-      case YAML_SEQUENCE_END_EVENT:
-	//	printf("%*s",  nest_level, "");
-	//	puts("<b>End Sequence</b>");
-	break;
       case YAML_MAPPING_START_EVENT:
 	nest_level++;
-	//	printf("%*s",  nest_level, "");
-	//	puts("<b>Start Mapping</b>");
 	break;
       case YAML_MAPPING_END_EVENT:
-	//	printf("%*s",  nest_level, "");
-	//	puts("<b>End Mapping</b>");
 	nest_level--;
 	if ( state.rip_nest_level == nest_level) {
 	  printf("(VIP,PORT,RIP) = (%s,%s,%s)\n", state.vip, state.port, state.rip);
 	}
 	break;
-	/* Data */
-      case YAML_ALIAS_EVENT:
-	//	printf("%*s",  nest_level, "");
-	//	printf("Got alias (anchor %s)\n", event.data.alias.anchor);
-	break;
       case YAML_SCALAR_EVENT:
-	//	printf("%*s",  nest_level, "");
-	/*
-	  if (state.state == EXPECT_MAP){
-	  printf("There's something wrong\n");
-	  break;
-	}
-	*/
-	
+
 	if (strcmp(event.data.scalar.value, "virtual_server") == 0) {
-	  //	  printf("%s\n", event.data.scalar.value);
 	  state.state = EXPECT_MAP;
 	  state.vor = VIP;
 	  state.vip_nest_level = nest_level;
 	} else if (strcmp((char*)event.data.scalar.value, "real_servers") == 0 ||
 		   strcmp((char*)event.data.scalar.value, "real_servers") == 0) {
-	  //	  printf("%s\n", event.data.scalar.value);
 	  printf("(VIP,PORT) = (%s,%s)\n", state.vip, state.port);
 	  state.state = EXPECT_MAP;
 	  state.vor = RIP;
 	  state.rip_nest_level = nest_level;
 	} else if (strcmp((char*)event.data.scalar.value, "ipv4") == 0 ){
-	  //	  printf("Got ipv4(value %s)\n", event.data.scalar.value);
-	  state.key = strdup(event.data.scalar.value);
 	  state.state = EXPECT_IPV4;
 	} else if (strcmp(event.data.scalar.value, "port") == 0 ){
-	  //	  printf("Got port (value %s)\n", event.data.scalar.value);
-	  state.key = strdup(event.data.scalar.value);
 	  state.state = EXPECT_PORT;
-	} else {
-	  //	  printf("Got values (value %s)\n", event.data.scalar.value);
-	  state.value = strdup(event.data.scalar.value);
-	  //	  printf("(%s,%s)\n", state.key, state.value);
+	} else { // parse values
 
 	  if (state.vor == VIP && state.state == EXPECT_IPV4 ){
 	    state.vip = strdup(event.data.scalar.value);
@@ -161,10 +94,20 @@ int parse_yaml()
 	    state.rip = strdup(event.data.scalar.value);
 	  }
 	  
-	  state.key = strdup("");
-	  state.value = strdup("");
 	  state.state = EXPECT_NONE;
 	}
+	break;
+
+      case YAML_NO_EVENT:
+      case YAML_STREAM_START_EVENT:
+      case YAML_STREAM_END_EVENT:
+      case YAML_DOCUMENT_START_EVENT:
+      case YAML_DOCUMENT_END_EVENT:
+      case YAML_SEQUENCE_START_EVENT:
+      case YAML_SEQUENCE_END_EVENT:
+      case YAML_ALIAS_EVENT:
+	break;
+      default:
 	break;
       }
     if(event.type != YAML_STREAM_END_EVENT)
