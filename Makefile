@@ -7,6 +7,7 @@ COMMON_H      =  ${CMDLINE_TOOLS:_cmdline=_common.h}
 RMI_SOURCES := route.c
 RMI_SOURCES += icmp.c
 RMI_SOURCES += mac.c
+RMI_SOURCES += xlb_util.c
 RMI_OBJECTS = ${RMI_SOURCES:.c=.o}
 
 # Generate file name-scheme based on TARGETS

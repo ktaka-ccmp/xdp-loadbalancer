@@ -47,12 +47,11 @@ static int verbose = 0;
 #define DEBUG false 
 #endif
 
-// static const char *file_rxcnt = "/sys/fs/bpf/rxcnt";
 static const char *file_service   = "/sys/fs/bpf/service";
 static const char *file_linklist   = "/sys/fs/bpf/linklist";
 static const char *file_worker   = "/sys/fs/bpf/worker";
-static const char *file_lbcache   = "/sys/fs/bpf/lbcache";
 static const char *file_svcid   = "/sys/fs/bpf/svcid";
+static const char *file_lbcache   = "/sys/fs/bpf/lbcache";
 
 struct vip {
 	union {
@@ -75,7 +74,8 @@ struct iptnl_info {
 	} daddr;
 	__u16 family;
   //	__u8 dmac[6];
-	char dmac[6];
+  	char dmac[6];
+  //  struct ether_addr* dmac;
 };
 
 struct sip {

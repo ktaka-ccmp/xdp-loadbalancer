@@ -5,8 +5,8 @@ int xlb_parse_route(struct nlmsghdr *nlh, in_addr_t *src_ip, in_addr_t *nh_ip, i
     struct  rtmsg *route_entry;
     struct  rtattr *route_attribute; 
     int     route_attribute_len = 0;
-    unsigned char    route_netmask = 0;
-    unsigned char    route_protocol = 0;
+    //    unsigned char route_netmask = 0;
+    //    unsigned char route_protocol = 0;
     int  via = 0;
     
     route_entry = (struct rtmsg *) NLMSG_DATA(nlh);
@@ -14,8 +14,8 @@ int xlb_parse_route(struct nlmsghdr *nlh, in_addr_t *src_ip, in_addr_t *nh_ip, i
     if (route_entry->rtm_table != RT_TABLE_MAIN)
       return 1;
 
-    route_netmask = route_entry->rtm_dst_len;
-    route_protocol = route_entry->rtm_protocol;
+    //    route_netmask = route_entry->rtm_dst_len;
+    //    route_protocol = route_entry->rtm_protocol;
     route_attribute = (struct rtattr *) RTM_RTA(route_entry);
     route_attribute_len = RTM_PAYLOAD(nlh);
 
