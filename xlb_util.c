@@ -141,8 +141,8 @@ void lnklst_del_from_map(int fd, struct iptnl_info *vip , __u64 *head){
   if ( ipint == next ) {// last entry. Delete & update head
 
     assert(bpf_map_delete_elem(fd, &ipint) == 0 );
-    strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
-    *head = conv(ip_txt, svcint);
+
+    *head = conv("0.0.0.0", svcint);
   
   } else {
     bpf_map_lookup_elem(fd, &key, &next);
@@ -246,7 +246,7 @@ void worker_list_all()
   __u64 key = 0, next_key;
   struct iptnl_info value;
   char ip_txt[INET_ADDRSTRLEN] = {0};
-  char *mac_txt;
+  char mac_txt[] = "00:00:00:00:00:00";
 
   int fd = open_bpf_map(file_worker);
 
@@ -259,7 +259,7 @@ void worker_list_all()
     printf("src: %s\n", ip_txt );
     assert(inet_ntop(value.family, &value.daddr.v4, ip_txt, sizeof(ip_txt)));
     printf("dst: %s\n", ip_txt );
-    mac_txt = ether_ntoa((struct ether_addr *)value.dmac);
+    assert(ether_ntoa_r((struct ether_addr *)value.dmac, mac_txt));
     printf("mac: %s\n}\n", mac_txt );
 
     key = next_key;
@@ -288,16 +288,16 @@ void show_worker( __u64 key){
   struct iptnl_info value;
   char daddr_txt[INET_ADDRSTRLEN] = {0};
   char saddr_txt[INET_ADDRSTRLEN] = {0};
-  char *mac_txt;
-
+  char mac_txt[] = "00:00:00:00:00:00";
+  
   int fd = open_bpf_map(file_worker);
   
   if (bpf_map_lookup_elem(fd, &key, &value) == -1 ) return;
 
   assert(inet_ntop(value.family, &value.saddr.v4, saddr_txt, sizeof(saddr_txt)));
   assert(inet_ntop(value.family, &value.daddr.v4, daddr_txt, sizeof(daddr_txt)));
-  mac_txt = ether_ntoa((struct ether_addr *)value.dmac);
-
+  assert(ether_ntoa_r((struct ether_addr *)value.dmac, mac_txt));
+  
   if (DEBUG) printf("key: %llu\n", key);
 
   printf(" src: %s, dst: %s (%s)\n", saddr_txt, daddr_txt, mac_txt );
@@ -379,11 +379,11 @@ void list_lbcache()
 	   );
 
     struct iptnl_info value;
-    char *mac_txt;
+    char mac_txt[] = "00:00:00:00:00:00";
 
     bpf_map_lookup_elem(fdw, &wkid, &value);
     inet_ntop(value.family, &value.daddr.v4, daddr_txt, sizeof(daddr_txt));
-    mac_txt = ether_ntoa((struct ether_addr *)value.dmac);
+    assert(ether_ntoa_r((struct ether_addr *)value.dmac, mac_txt));
     printf("%s (%s)\n", daddr_txt, mac_txt );
 
   }
@@ -427,8 +427,7 @@ void xlb_add_svc(struct vip* vip)
 
   //  printf("Service id %d\n", svcid);
     
-  strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
-  head = conv(ip_txt, svcid);
+  head = conv("0.0.0.0", svcid);
   
   // 2. Add service to the service map.
   bpf_map_update_elem(fd_service, &vip->daddr.v4, &head, BPF_NOEXIST);
@@ -454,9 +453,7 @@ void xlb_del_svc(struct vip* vip)
   }
   svcid = head>>32;
 
-  strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
-
-  if (head == conv(ip_txt,svcid)) { // If there is no worker then remove service
+  if (head == conv("0.0.0.0", svcid)) { // If there is no worker then remove service
     bpf_map_delete_elem(fd_service, vip);
     bpf_map_delete_elem(fd_svcid, &svcid);
   } else {
@@ -483,14 +480,15 @@ void xlb_add_real(struct vip* vip, struct iptnl_info* tnl)
   xlb_iproute_get(&tnl->daddr.v4, &tnl->saddr.v4, &nh_ip, &dev);
   xlb_get_mac(&nh_ip, tnl->dmac , &dev);
 
-  if (DEBUG){
+  //  if (DEBUG){
     char buf[256];
-    char *mac_txt;
+    char mac_txt[] = "00:00:00:00:00:00";
 
     printf("src: %s \n", inet_ntop(AF_INET, &tnl->saddr.v4, buf, 256));
-    mac_txt = ether_ntoa((struct ether_addr *)tnl->dmac);
-    printf("mac: %s\n", mac_txt );
-  }
+    assert(ether_ntoa_r((struct ether_addr *)tnl->dmac, mac_txt));
+    printf("nexthop: %s (%s) \n", inet_ntop(AF_INET, &nh_ip, buf, 256), mac_txt);
+    //    printf("mac: %s\n", mac_txt );
+    //  }
 
   int fd_service = open_bpf_map(file_service);
   int fd_linklist = open_bpf_map(file_linklist);
@@ -501,7 +499,7 @@ void xlb_add_real(struct vip* vip, struct iptnl_info* tnl)
   if (bpf_map_lookup_elem(fd_service, vip, &head) == -1 ){
     assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
     printf("The service \"%s:%d\" does not exist!\n", ip_txt, ntohs(vip->dport));
-    //    return EXIT_FAIL;
+    return;
   }
   svcid = head>>32;
 
@@ -515,15 +513,15 @@ void xlb_add_real(struct vip* vip, struct iptnl_info* tnl)
 
   // 1. Check if the head is for "0.0.0.0" i.e. there's no worker yet.
   //    If so, generate new head from worker ip. 
-  strncpy(ip_txt, "0.0.0.0", INET_ADDRSTRLEN);
-  if (head == conv(ip_txt,svcid)) { 
+
+  if (head == conv("0.0.0.0",svcid)) { 
     head = daddrint;
   }
 
   // 2. Check if the worker already exists for the service.
   if (bpf_map_lookup_elem(fd_worker, &daddrint, &tnl_tmp) == 0 ){
     printf("The \"%s\" already exists for service(#%d)!\n",ip_txt,svcid);
-    return;
+  return;
   }
 
   if (verbose) printf("head old = %llu\n", head);
