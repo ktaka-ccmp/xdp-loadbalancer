@@ -1,10 +1,5 @@
-#include <stdio.h>
 #include <yaml.h>
-#include <assert.h>
-
-#include <unistd.h>
-#include <signal.h>
-#include <string.h>
+#include "xlb_util.h"
 
 char* conf_yaml;
 
@@ -26,7 +21,6 @@ enum state_value {
     EXPECT_PORT,
 };
 
-
 enum vip_or_rip {
     NONE,
     VIP,
@@ -43,6 +37,23 @@ struct parser_state {
   char *port;
 };
 
+struct _vs vs[256];
+int svc_num;
+
+int reflector()
+{
+  printf("\nReflector called\nsvc_num=%d\n",svc_num);
+
+  for (int k=1 ; k < svc_num+1;k++){
+    printf("%s:%s\n",vs[k].ipv4,vs[k].port);
+    for (int l=0 ; l < vs[k].num_rs ;l++){
+      printf("  %s\n",vs[k].rs[l].ipv4);
+    }
+  }
+  
+  return 0;
+}
+
 int parse_yaml()
 {
   FILE *fh;
@@ -51,9 +62,8 @@ int parse_yaml()
   int nest_level = 0 ;
   struct parser_state state = {.state=EXPECT_NONE};
 
-  struct _vs *vs = malloc(sizeof(struct _vs)*256); 
+  //  struct _vs *vs = malloc(sizeof(struct _vs)*256); 
   int j,i=0;
-
   
   fh = fopen(conf_yaml, "rb");
   if(fh == NULL)
@@ -93,6 +103,7 @@ int parse_yaml()
 	  state.state = EXPECT_MAP;
 	  state.vor = VIP;
 	  i++;vs[i].num_rs=0;
+	  //	  vs[i].num_rs=0;i++;
 	  state.vip_nest_level = nest_level;
 	} else if (strcmp((char*)event.data.scalar.value, "real_servers") == 0 ||
 		   strcmp((char*)event.data.scalar.value, "real_servers") == 0) {
@@ -136,24 +147,28 @@ int parse_yaml()
     if(event.type != YAML_STREAM_END_EVENT)
       yaml_event_delete(&event);
   } while(event.type != YAML_STREAM_END_EVENT);
+
   yaml_event_delete(&event);
-
   yaml_parser_delete(&parser);
+  fclose(fh);
 
+  svc_num=i;
+  
   for (int k=1 ; k < i+1;k++){
     printf("%s:%s\n",vs[k].ipv4,vs[k].port);
     for (int l=0 ; l < vs[k].num_rs ;l++){
       printf("  %s\n",vs[k].rs[l].ipv4);
     }
   }
-  fclose(fh);
-  free(vs);
+
+  //  free(vs);
   return 0;
 }
 
 void sig_reader(int signal){
   printf("\nrecved signal = %d\n",signal);
   parse_yaml();
+  reflector();
 }
 
 int main(int argc, const char *argv[])
@@ -167,7 +182,7 @@ int main(int argc, const char *argv[])
   conf_yaml = strdup(argv[1]);
   parse_yaml();
   
-  printf("My pid is: %d\n", getpid());
+  printf("\nMy pid is: %d\n\n", getpid());
   sa.sa_handler = &sig_reader;
   sa.sa_flags = SA_RESTART;
   sigfillset(&sa.sa_mask);
@@ -181,4 +196,3 @@ int main(int argc, const char *argv[])
   }
 
 }
-
