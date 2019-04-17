@@ -3,16 +3,6 @@
 
 char* conf_yaml;
 
-struct _rs {
-  char *ipv4;
-};
-
-struct _vs {
-  int num_rs;
-  char *ipv4;
-  char *port;
-  struct _rs rs[256];
-};
 
 enum state_value {
     EXPECT_NONE,
@@ -37,33 +27,147 @@ struct parser_state {
   char *port;
 };
 
-struct _vs vs[256];
 int svc_num;
 
-int reflector()
-{
-  printf("\nReflector called\nsvc_num=%d\n",svc_num);
+struct _service service[256];
 
-  for (int k=1 ; k < svc_num+1;k++){
-    printf("%s:%s\n",vs[k].ipv4,vs[k].port);
-    for (int l=0 ; l < vs[k].num_rs ;l++){
-      printf("  %s\n",vs[k].rs[l].ipv4);
+void prune_workers(){
+  __u64 key = 0, next_key;
+  struct iptnl_info tnl;
+  char ip_txt[INET_ADDRSTRLEN] = {0};
+
+  int fd_worker = open_bpf_map(file_worker);
+
+  while (bpf_map_get_next_key(fd_worker, &key, &next_key) == 0) {
+    bool doomed_worker = true;
+    bpf_map_lookup_elem(fd_worker, &next_key, &tnl);
+
+    if(DEBUG){
+      printf("\nsvcid: %d\n" , next_key>>32);
+      assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+      printf("dst: %s\n", ip_txt );
+    }
+    
+    struct vip vip;
+    int svcid = next_key>>32;
+
+    int fd_svcid = open_bpf_map(file_svcid);
+    bpf_map_lookup_elem(fd_svcid, &svcid, &vip);
+    close(fd_svcid);
+    
+    for (int k=1 ; k < svc_num+1;k++){
+      if ( vip.daddr.v4 ==  service[k].svc.daddr.v4 &&
+	   vip.dport == service[k].svc.dport &&
+	   vip.protocol == service[k].svc.protocol){
+
+	for (int l=0 ; l < service[k].wkr_count ;l++){
+	  if (DEBUG)
+	    printf("%d,%d,%d,%d\n",tnl.daddr.v4,service->wkr[l].daddr.v4,l,service->wkr_count);
+
+	  if ( tnl.daddr.v4 ==  service[k].wkr[l].daddr.v4){
+ 	    doomed_worker = false;
+	    break;
+	  }
+	}
+
+	if (doomed_worker == false)
+	  break;
+      }
+    }
+     
+    if (doomed_worker==true){
+      if (DEBUG){
+	assert(inet_ntop(tnl.family, &tnl.daddr.v4, ip_txt, sizeof(ip_txt)));
+	printf("Worker %s for #%d is doomed\n", ip_txt, svcid);
+      }
+      xlb_del_real(&vip,&tnl);
+    }
+    
+    key = next_key;
+  }
+
+  close(fd_worker);
+}
+  
+void prune_services()
+{
+  struct vip key = {}, next_key;
+  __u64 head,value;
+  
+  int fd_service = open_bpf_map(file_service);
+
+  while (bpf_map_get_next_key(fd_service, &key, &next_key) == 0) {
+    key = next_key;
+    bpf_map_lookup_elem(fd_service, &key, &head);
+    
+    bool doomed_service = true;
+    if (DEBUG)
+      printf("%d, %d, %d\n",key.daddr.v4, key.dport, key.protocol);
+    
+    for (int k=1 ; k < svc_num+1;k++){
+      if (DEBUG)
+	printf("....-> %d, %d, %d\n",service[k].svc.daddr.v4, service[k].svc.dport, service[k].svc.protocol);
+
+      if ( key.daddr.v4 ==  service[k].svc.daddr.v4 &&
+	   key.dport == service[k].svc.dport &&
+	   key.protocol == service[k].svc.protocol){
+	doomed_service = false;
+      }
+    }
+
+    if (doomed_service){
+      if (DEBUG){
+	char ip_txt[INET_ADDRSTRLEN] = {0};
+	assert(inet_ntop(key.family, &key.daddr.v4, ip_txt, sizeof(ip_txt)));
+	printf("Service %s:%d(%d) is doomed\n", ip_txt, ntohs(key.dport), key.protocol);
+      }
+      xlb_del_svc(&key);
     }
   }
+
+  close(fd_service);
+}
+
+int reflect_yaml()
+{
+  for (int k=1 ; k < svc_num+1;k++){
+    xlb_add_svc(&service[k].svc);
+    for (int l=0 ; l < service[k].wkr_count ;l++){
+	xlb_add_real(&service[k].svc, &service[k].wkr[l]);
+    }
+  }
+
+  printf("\n");
   
+  prune_workers();
+  prune_services();
+
+  printf("\n");
+
   return 0;
 }
 
 int parse_yaml()
 {
+  struct _rs {
+    char *ipv4;
+  };
+
+  struct _vs {
+    int num_rs;
+    char *ipv4;
+    char *port;
+    struct _rs rs[256];
+  };
+
   FILE *fh;
   yaml_parser_t parser;
   yaml_event_t  event;
   int nest_level = 0 ;
   struct parser_state state = {.state=EXPECT_NONE};
 
-  //  struct _vs *vs = malloc(sizeof(struct _vs)*256); 
-  int j,i=0;
+  struct _vs *vs = malloc(sizeof(struct _vs)*256); 
+  int j=0,i=0;
   
   fh = fopen(conf_yaml, "rb");
   if(fh == NULL)
@@ -153,22 +257,40 @@ int parse_yaml()
   fclose(fh);
 
   svc_num=i;
-  
+
+  /*
   for (int k=1 ; k < i+1;k++){
     printf("%s:%s\n",vs[k].ipv4,vs[k].port);
     for (int l=0 ; l < vs[k].num_rs ;l++){
       printf("  %s\n",vs[k].rs[l].ipv4);
     }
   }
+  printf("\n");
+  */
 
-  //  free(vs);
+  for (int k=1 ; k < svc_num+1;k++){
+
+    service[k].svc.protocol = IPPROTO_TCP;
+    service[k].svc.family= parse_ipstr(vs[k].ipv4, &service[k].svc.daddr.v6);
+
+    int port=0;
+    parse_port(vs[k].port, &port);
+    service[k].svc.dport=htons(port);
+
+    for (int l=0 ; l < vs[k].num_rs ;l++){
+      service[k].wkr[l].family=parse_ipstr(vs[k].rs[l].ipv4, &service[k].wkr[l].daddr.v6);
+    }
+    service[k].wkr_count = vs[k].num_rs;
+  }
+
+  free(vs);
   return 0;
 }
 
 void sig_reader(int signal){
-  printf("\nrecved signal = %d\n",signal);
+  printf("recved signal = %d\n",signal);
   parse_yaml();
-  reflector();
+  reflect_yaml();
 }
 
 int main(int argc, const char *argv[])
@@ -181,6 +303,7 @@ int main(int argc, const char *argv[])
   }
   conf_yaml = strdup(argv[1]);
   parse_yaml();
+  reflect_yaml();
   
   printf("\nMy pid is: %d\n\n", getpid());
   sa.sa_handler = &sig_reader;

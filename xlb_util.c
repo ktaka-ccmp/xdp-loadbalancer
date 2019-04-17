@@ -19,14 +19,13 @@ int parse_port(const char *port_str, int *port)
 	char *end;
 	long tmp_port;
 
-	tmp_port = strtol(optarg, &end, 10);
+	tmp_port = strtol(port_str, &end, 10);
 	if (tmp_port < 1 || tmp_port > 65535) {
-		fprintf(stderr, "Invalid port(s):%s\n", optarg);
+		fprintf(stderr, "Invalid port(s):%s\n", port_str);
 		return 1;
 	}
 
 	*port = tmp_port;
-
 	return 0;
 }
 
@@ -227,6 +226,7 @@ void service_list_all()
 
   int fd = open_bpf_map(file_service);
   
+  printf("Service List: \n");
   while (bpf_map_get_next_key(fd, &key, &next_key) == 0) {
     key = next_key;
     bpf_map_lookup_elem(fd, &key, &head);
@@ -237,6 +237,7 @@ void service_list_all()
     printf("%d\n", ntohs(key.dport));
     printf("head = %llu\n}\n", head);
   }
+  printf("\n");
 
   close(fd);
 }
@@ -254,6 +255,7 @@ void worker_list_all()
     bpf_map_lookup_elem(fd, &next_key, &value);
 
     printf("{\nkey: %llu\n" , next_key);
+    printf("{\nsvcid: %d\n" , next_key>>32);
 
     assert(inet_ntop(value.family, &value.saddr.v4, ip_txt, sizeof(ip_txt)));
     printf("src: %s\n", ip_txt );
@@ -300,6 +302,7 @@ void show_worker( __u64 key){
   
   if (DEBUG) printf("key: %llu\n", key);
 
+  //  printf(" dst: %u\n", value.daddr.v4);
   printf(" src: %s, dst: %s (%s)\n", saddr_txt, daddr_txt, mac_txt );
 
   close(fd);
@@ -411,7 +414,7 @@ void xlb_add_svc(struct vip* vip)
   if (bpf_map_lookup_elem(fd_service, vip, &head) == 0 ){
     //    assert(inet_ntop((*vip).family, &(*vip).daddr.v4, ip_txt, sizeof(ip_txt)));
     assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
-    printf("The service \"%s:%d\" already exists!\n", ip_txt, ntohs(vip->dport));
+    printf("%s:%d (#%d)\n",ip_txt,ntohs(vip->dport),head>>32);
     return;
   }
 
@@ -430,7 +433,11 @@ void xlb_add_svc(struct vip* vip)
   head = conv("0.0.0.0", svcid);
   
   // 2. Add service to the service map.
-  bpf_map_update_elem(fd_service, &vip->daddr.v4, &head, BPF_NOEXIST);
+  //  bpf_map_update_elem(fd_service, &vip->daddr.v4, &head, BPF_NOEXIST);
+  bpf_map_update_elem(fd_service, vip, &head, BPF_NOEXIST);
+
+  assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
+  printf("+%s:%d (#%d)\n",ip_txt,ntohs(vip->dport),svcid);
 
   close(fd_service);
   close(fd_svcid);
@@ -456,6 +463,10 @@ void xlb_del_svc(struct vip* vip)
   if (head == conv("0.0.0.0", svcid)) { // If there is no worker then remove service
     bpf_map_delete_elem(fd_service, vip);
     bpf_map_delete_elem(fd_svcid, &svcid);
+
+    assert(inet_ntop(vip->family, &vip->daddr.v4, ip_txt, sizeof(ip_txt)));
+    printf("-%s:%d (#%d)\n",ip_txt,ntohs(vip->dport),svcid);
+
   } else {
     printf("\nWorkers still exist for service(#%d)! Delete them first.\n\n",svcid);
     //    do_list=1;
@@ -480,7 +491,7 @@ void xlb_add_real(struct vip* vip, struct iptnl_info* tnl)
   xlb_iproute_get(&tnl->daddr.v4, &tnl->saddr.v4, &nh_ip, &dev);
   xlb_get_mac(&nh_ip, tnl->dmac , &dev);
 
-  //  if (DEBUG){
+  if (DEBUG){
     char buf[256];
     char mac_txt[] = "00:00:00:00:00:00";
 
@@ -488,7 +499,7 @@ void xlb_add_real(struct vip* vip, struct iptnl_info* tnl)
     assert(ether_ntoa_r((struct ether_addr *)tnl->dmac, mac_txt));
     printf("nexthop: %s (%s) \n", inet_ntop(AF_INET, &nh_ip, buf, 256), mac_txt);
     //    printf("mac: %s\n", mac_txt );
-    //  }
+  }
 
   int fd_service = open_bpf_map(file_service);
   int fd_linklist = open_bpf_map(file_linklist);
@@ -520,7 +531,8 @@ void xlb_add_real(struct vip* vip, struct iptnl_info* tnl)
 
   // 2. Check if the worker already exists for the service.
   if (bpf_map_lookup_elem(fd_worker, &daddrint, &tnl_tmp) == 0 ){
-    printf("The \"%s\" already exists for service(#%d)!\n",ip_txt,svcid);
+    //    printf("\"%s\" already exists for service(#%d)!\n",ip_txt,svcid);
+    printf("  %s (#%d)\n",ip_txt,svcid);
   return;
   }
 
@@ -532,6 +544,9 @@ void xlb_add_real(struct vip* vip, struct iptnl_info* tnl)
   lnklst_add_to_map(fd_linklist, tnl, &head);
   bpf_map_update_elem(fd_worker, &daddrint, tnl, BPF_ANY);
   bpf_map_update_elem(fd_service, &vip->daddr.v4, &head, BPF_ANY);
+
+  //  printf("+   %s added for #%d\n",ip_txt,svcid);
+  printf("+  %s (#%d)\n",ip_txt,svcid);
   
   if (verbose) printf("head new = %llu\n", head);
 
@@ -564,9 +579,10 @@ void xlb_del_real(struct vip* vip, struct iptnl_info* tnl)
   assert(inet_ntop(tnl->family, &tnl->daddr.v4, ip_txt, sizeof(ip_txt)));
   daddrint = conv(ip_txt, svcid);
   if (bpf_map_lookup_elem(fd_worker, &daddrint, &tnl_tmp) == -1 ){
-    printf("The worker, \"%s\" does not exist for service(#%d)!\n",ip_txt,svcid);
+    printf("%s does not exist for service(#%d)!\n",ip_txt,svcid);
     return;
   }
+
 
   // 1. Delete wkrtag from the linked-list.
   //	    lnklst_del_from_map(fd_linklist, &tnl, &daddr);
@@ -576,6 +592,9 @@ void xlb_del_real(struct vip* vip, struct iptnl_info* tnl)
   lnklst_del_from_map(fd_linklist, tnl, &head);
   bpf_map_delete_elem(fd_worker, &daddrint);
   bpf_map_update_elem(fd_service, &vip->daddr.v4, &head, BPF_ANY);
+
+  //  printf("  %s removed from #%d\n",ip_txt,svcid);
+  printf("-  %s (#%d)\n",ip_txt,svcid);
 
   close(fd_service);
   close(fd_linklist);

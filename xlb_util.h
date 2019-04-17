@@ -39,3 +39,10 @@ void xlb_del_svc(struct vip*);
 void xlb_add_real(struct vip*, struct iptnl_info*);
 void xlb_del_real(struct vip*, struct iptnl_info*);
 
+struct _service {
+  struct vip svc;
+  struct iptnl_info wkr[256];
+  int wkr_count;
+};
+
+

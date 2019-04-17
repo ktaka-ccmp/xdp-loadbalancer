@@ -1,6 +1,8 @@
 #
 TARGETS := xlb
 
+MANAGEMENT_DAEMON := xlbd
+
 CMDLINE_TOOLS := xlb_cmdline
 COMMON_H      =  ${CMDLINE_TOOLS:_cmdline=_common.h}
 
@@ -72,7 +74,7 @@ LINUXINCLUDE += -I$(KERNEL)/tools/lib
 #EXTRA_CFLAGS=-Werror
 EXTRA_CFLAGS= -D__BPF_TRACING__
 
-all: dependencies $(TARGETS) $(KERN_OBJECTS) $(CMDLINE_TOOLS)
+all: dependencies $(TARGETS) $(KERN_OBJECTS) $(CMDLINE_TOOLS) $(MANAGEMENT_DAEMON)
 
 .PHONY: dependencies clean verify_cmds verify_llvm_target_bpf $(CLANG) $(LLC)
 
@@ -176,3 +178,6 @@ $(TARGETS): %: %_user.c $(OBJECTS) Makefile
 
 $(CMDLINE_TOOLS): %: %.c $(OBJECTS) Makefile $(COMMON_H) $(RMI_OBJECTS) rmi.h
 	$(CC) -g $(CFLAGS) $(OBJECTS) $(RMI_OBJECTS) $(LDFLAGS) -o $@ $<
+
+$(MANAGEMENT_DAEMON): %: %.c $(OBJECTS) Makefile $(COMMON_H) $(RMI_OBJECTS) rmi.h
+	$(CC) -g $(CFLAGS) $(OBJECTS) $(RMI_OBJECTS) $(LDFLAGS) -o $@ $< -lyaml
