@@ -1,0 +1,47 @@
+gcc -g -g -O2 -Wall -I/lib/modules/4.20.16-64kt01/build//tools/lib -I/lib/modules/4.20.16-64kt01/build//tools/include -I/lib/modules/4.20.16-64kt01/build//tools/perf -I/lib/modules/4.20.16-64kt01/build//usr/include tools/lib/bpf/bpf.o bpf_load.o route.o icmp.o mac.o xlb_util.o -lelf -o xlb_cmdline xlb_cmdline.c
+xlb_cmdline.c: In function 'main':
+xlb_cmdline.c:103:20: warning: implicit declaration of function 'parse_ipstr' [-Wimplicit-function-declaration]
+       vip.family = parse_ipstr(optarg, vip.daddr.v6);
+                    ^~~~~~~~~~~
+xlb_cmdline.c:138:11: warning: implicit declaration of function 'parse_port' [-Wimplicit-function-declaration]
+       if (parse_port(optarg, &port))
+           ^~~~~~~~~~
+xlb_cmdline.c:177:16: warning: implicit declaration of function 'open_bpf_map' [-Wimplicit-function-declaration]
+   fd_service = open_bpf_map(file_service);
+                ^~~~~~~~~~~~
+xlb_cmdline.c:185:5: warning: implicit declaration of function 'xlb_add_svc' [-Wimplicit-function-declaration]
+     xlb_add_svc(fd_service, fd_svcid, &vip);
+     ^~~~~~~~~~~
+xlb_cmdline.c:187:5: warning: implicit declaration of function 'xlb_add_real' [-Wimplicit-function-declaration]
+     xlb_add_real(fd_service, fd_svcid, fd_linklist, fd_worker, &vip, &tnl);
+     ^~~~~~~~~~~~
+xlb_cmdline.c:189:5: warning: implicit declaration of function 'xlb_del_real' [-Wimplicit-function-declaration]
+     xlb_del_real(fd_service, fd_linklist, fd_worker, &vip, &tnl);
+     ^~~~~~~~~~~~
+xlb_cmdline.c:191:5: warning: implicit declaration of function 'xlb_del_svc' [-Wimplicit-function-declaration]
+     xlb_del_svc(fd_service, fd_svcid, &vip);
+     ^~~~~~~~~~~
+xlb_cmdline.c:200:5: warning: implicit declaration of function 'list_all' [-Wimplicit-function-declaration]
+     list_all();
+     ^~~~~~~~
+xlb_cmdline.c:204:5: warning: implicit declaration of function 'service_list_all' [-Wimplicit-function-declaration]
+     service_list_all();
+     ^~~~~~~~~~~~~~~~
+xlb_cmdline.c:205:5: warning: implicit declaration of function 'linklist_list_all' [-Wimplicit-function-declaration]
+     linklist_list_all();
+     ^~~~~~~~~~~~~~~~~
+xlb_cmdline.c:206:5: warning: implicit declaration of function 'worker_list_all' [-Wimplicit-function-declaration]
+     worker_list_all();
+     ^~~~~~~~~~~~~~~
+xlb_cmdline.c:207:5: warning: implicit declaration of function 'svcid_list_all' [-Wimplicit-function-declaration]
+     svcid_list_all();
+     ^~~~~~~~~~~~~~
+xlb_cmdline.c:211:5: warning: implicit declaration of function 'list_lbcache' [-Wimplicit-function-declaration]
+     list_lbcache();
+     ^~~~~~~~~~~~
+In file included from xlb_util.h:17:0,
+                 from xlb_cmdline.c:32:
+At top level:
+xlb_common.h:54:20: warning: 'file_lbcache' defined but not used [-Wunused-variable]
+ static const char *file_lbcache   = "/sys/fs/bpf/lbcache";
+                    ^~~~~~~~~~~~

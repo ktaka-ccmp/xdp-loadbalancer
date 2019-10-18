@@ -1,0 +1,13 @@
+---
+- virtual_server:
+    ipv4: 10.1.1.1
+    port: 80
+    real_servers:
+      - ipv4: 172.16.51.2
+- virtual_server:
+    ipv4: 10.0.0.1
+    port: 81
+    real_servers:
+      - ipv4: 172.16.51.3
+
+
